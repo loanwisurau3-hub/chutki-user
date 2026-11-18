@@ -570,6 +570,30 @@ body {
   color: #065f46;
   background: #d1fae5;
 }
+.qc-delivery-pill {
+  font-size: 0.63rem;
+  font-weight: 800;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 1px 5px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+
+.qc-delivery-pill.free {
+  color: #15803d;
+  background: #dcfce7;
+  border-color: #bbf7d0;
+}
+
+.delivery-dist-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #1d4ed8;
+}
 
 .nearby-priority-pill {
   font-size: 0.65rem;

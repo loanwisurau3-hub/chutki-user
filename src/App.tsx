@@ -138,7 +138,10 @@ import {
   type RingtoneController,
   type WebRtcCallSession,
 } from './utils/webrtcCallEngine';
-
+const ChutkiBgBridge = registerPlugin<{
+  startAlertService: (opts: { uid: string }) => Promise<void>;
+  stopAlertService: () => Promise<void>;
+}>('ChutkiBgBridge');
 interface ToastItem {
   id: number;
   msg: string;
@@ -721,7 +724,12 @@ export default function App() {
     });
     return () => unsub();
   }, []);
-
+useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    if (currentUser && !needsEmailVerification) {
+      void ChutkiBgBridge.startAlertService({ uid: currentUser.uid }).catch(() => {});
+    }
+  }, [currentUser, needsEmailVerification]);
   useEffect(() => {
     if (verifyResendCooldownSec <= 0) return undefined;
     const timer = window.setTimeout(() => {
@@ -3400,12 +3408,16 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+ const handleLogout = () => {
     setCartItems([]);
     try {
       localStorage.removeItem(CART_STORAGE_KEY);
     } catch {
       // Ignore
+    }
+    if (Capacitor.isNativePlatform()) {
+      void ChutkiBgBridge.stopAlertService().catch(() => {});
+      void FirebaseAuthentication.signOut().catch(() => {});
     }
     if (currentUser) {
       void signOut(auth);

@@ -44,17 +44,27 @@ jobs:
           npm install --legacy-peer-deps
           npm run build
 
-      - name: Wrap with Capacitor Android
+      - name: Wrap with Capacitor Android & Configure Google Login
         run: |
-          npm install --legacy-peer-deps @capacitor/core @capacitor/cli @capacitor/android
-          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
-            npx cap init "Chutki" "com.chutki.user" --web-dir dist
-          fi
+          npm install --legacy-peer-deps @capacitor/cli @capacitor/android
           if [ ! -d android ]; then
             npx cap add android
-          else
-            npx cap sync android
           fi
+          if [ -f google-services.json ]; then
+            cp google-services.json android/app/google-services.json
+          elif [ -f public/assets/aistudio/google-services_5c61c5de.json ]; then
+            cp public/assets/aistudio/google-services_5c61c5de.json android/app/google-services.json
+          fi
+          node -e '
+            const fs = require("fs");
+            const varsPath = "android/variables.gradle";
+            let vars = fs.readFileSync(varsPath, "utf8");
+            if (!vars.includes("rgcfaIncludeGoogle")) {
+              vars = vars.replace("ext {", "ext {\n    rgcfaIncludeGoogle = true");
+              fs.writeFileSync(varsPath, vars, "utf8");
+            }
+          '
+          npx cap sync android
 
       - name: Add Mic, GPS & Notification Permissions to AndroidManifest.xml
         run: |
@@ -84,6 +94,11 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+
+      - name: Print APK SHA-1 for Firebase Google Login
+        run: |
+          cd android
+          ./gradlew signingReport --no-daemon | grep -E "Variant:|SHA1:|SHA-256:" | head -n 12 || true
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

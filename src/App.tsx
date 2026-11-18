@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
+import { registerPlugin } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
+
+const ChutkiBgBridge = registerPlugin<{
+  startAlertService: (opts: { uid: string }) => Promise<void>;
+  stopAlertService: () => Promise<void>;
+}>('ChutkiBgBridge');
 import {
   onAuthStateChanged,
   sendEmailVerification,

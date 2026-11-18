@@ -66,6 +66,541 @@ jobs:
           '
           npx cap sync android
 
+      - name: Add Native Background Call & Order Notification Service
+        run: |
+          PKG_DIR="android/app/src/main/java/com/gossaigaon/bazar"
+          mkdir -p "$PKG_DIR"
+
+          cat << 'EOF' > "$PKG_DIR/MainActivity.java"
+          package com.gossaigaon.bazar;
+
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(ChutkiBgBridgePlugin.class);
+                  super.onCreate(savedInstanceState);
+              }
+
+              @Override
+              public void onResume() {
+                  super.onResume();
+                  ChutkiBackgroundAlertService.isAppInForeground = true;
+              }
+
+              @Override
+              public void onPause() {
+                  ChutkiBackgroundAlertService.isAppInForeground = false;
+                  super.onPause();
+              }
+          }
+          EOF
+
+          cat << 'EOF' > "$PKG_DIR/ChutkiBgBridgePlugin.java"
+          package com.gossaigaon.bazar;
+
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import androidx.core.content.ContextCompat;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+
+          @CapacitorPlugin(name = "ChutkiBgBridge")
+          public class ChutkiBgBridgePlugin extends Plugin {
+              @PluginMethod
+              public void startAlertService(PluginCall call) {
+                  String uid = call.getString("uid", "");
+                  SharedPreferences prefs = getContext().getSharedPreferences("ChutkiBgPrefs", Context.MODE_PRIVATE);
+                  prefs.edit().putString("customerUid", uid != null ? uid.trim() : "").apply();
+                  if (uid != null && !uid.trim().isEmpty()) {
+                      try {
+                          Intent svc = new Intent(getContext(), ChutkiBackgroundAlertService.class);
+                          svc.putExtra("uid", uid.trim());
+                          ContextCompat.startForegroundService(getContext(), svc);
+                      } catch (Exception ignored) {
+                      }
+                  }
+                  call.resolve();
+              }
+
+              @PluginMethod
+              public void stopAlertService(PluginCall call) {
+                  SharedPreferences prefs = getContext().getSharedPreferences("ChutkiBgPrefs", Context.MODE_PRIVATE);
+                  prefs.edit().remove("customerUid").apply();
+                  try {
+                      getContext().stopService(new Intent(getContext(), ChutkiBackgroundAlertService.class));
+                  } catch (Exception ignored) {
+                  }
+                  call.resolve();
+              }
+          }
+          EOF
+
+          cat << 'EOF' > "$PKG_DIR/ChutkiBootReceiver.java"
+          package com.gossaigaon.bazar;
+
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import androidx.core.content.ContextCompat;
+
+          public class ChutkiBootReceiver extends BroadcastReceiver {
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  if (intent == null || !Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) return;
+                  SharedPreferences prefs = context.getSharedPreferences("ChutkiBgPrefs", Context.MODE_PRIVATE);
+                  String uid = prefs.getString("customerUid", "");
+                  if (uid != null && !uid.trim().isEmpty()) {
+                      try {
+                          Intent svc = new Intent(context, ChutkiBackgroundAlertService.class);
+                          svc.putExtra("uid", uid.trim());
+                          ContextCompat.startForegroundService(context, svc);
+                      } catch (Exception ignored) {
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > "$PKG_DIR/ChutkiBackgroundAlertService.java"
+          package com.gossaigaon.bazar;
+
+          import android.app.AlarmManager;
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.app.Service;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.content.pm.ServiceInfo;
+          import android.media.AudioAttributes;
+          import android.media.RingtoneManager;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.IBinder;
+          import android.os.SystemClock;
+          import androidx.annotation.NonNull;
+          import androidx.core.app.NotificationCompat;
+          import com.google.firebase.FirebaseApp;
+          import com.google.firebase.auth.FirebaseAuth;
+          import com.google.firebase.database.ChildEventListener;
+          import com.google.firebase.database.DataSnapshot;
+          import com.google.firebase.database.DatabaseError;
+          import com.google.firebase.database.DatabaseReference;
+          import com.google.firebase.database.FirebaseDatabase;
+          import com.google.firebase.database.Query;
+          import com.google.firebase.database.ValueEventListener;
+          import java.util.HashMap;
+          import java.util.HashSet;
+          import java.util.Map;
+          import java.util.Set;
+
+          public class ChutkiBackgroundAlertService extends Service {
+              public static volatile boolean isAppInForeground = false;
+
+              private static final String DB_URL = "https://test-2a0d0-default-rtdb.firebaseio.com";
+              private static final String CH_KEEPALIVE = "chutki_bg_keepalive";
+              private static final String CH_CALLS = "chutki_calls";
+              private static final String CH_ORDERS = "chutki_orders";
+              private static final int FG_NOTIF_ID = 7001;
+              private static final int CALL_NOTIF_ID = 7002;
+
+              private DatabaseReference rootRef;
+              private DatabaseReference callInboxRef;
+              private ValueEventListener callInboxListener;
+              private Query ordersQuery;
+              private ValueEventListener ordersListener;
+
+              private final Map<String, DatabaseReference> chatRefs = new HashMap<>();
+              private final Map<String, ChildEventListener> chatListeners = new HashMap<>();
+              private final Set<String> notifiedMsgIds = new HashSet<>();
+              private String activeUid = "";
+              private String lastAlertedCallId = "";
+              private long serviceStartedAt = 0L;
+              private boolean ordersSeeded = false;
+
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  serviceStartedAt = System.currentTimeMillis();
+                  try {
+                      if (FirebaseApp.getApps(this).isEmpty()) {
+                          FirebaseApp.initializeApp(this);
+                      }
+                  } catch (Exception ignored) {
+                  }
+                  createChannels();
+                  startAsForeground();
+              }
+
+              @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  startAsForeground();
+                  SharedPreferences prefs = getSharedPreferences("ChutkiBgPrefs", Context.MODE_PRIVATE);
+                  String uid = intent != null ? intent.getStringExtra("uid") : null;
+                  if (uid == null || uid.trim().isEmpty()) {
+                      uid = prefs.getString("customerUid", "");
+                  }
+                  if (uid == null || uid.trim().isEmpty()) {
+                      if (FirebaseAuth.getInstance().getCurrentUser() != null) {
+                          uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                      }
+                  }
+                  if (uid != null && !uid.trim().isEmpty()) {
+                      String cleanUid = uid.trim();
+                      if (!cleanUid.equals(activeUid)) {
+                          activeUid = cleanUid;
+                          prefs.edit().putString("customerUid", cleanUid).apply();
+                          attachFirebaseListeners(cleanUid);
+                      }
+                  }
+                  return START_STICKY;
+              }
+
+              private void startAsForeground() {
+                  Notification n = new NotificationCompat.Builder(this, CH_KEEPALIVE)
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle("Chutki Live Alerts Active")
+                          .setContentText("Ready for incoming rider calls & order updates")
+                          .setPriority(NotificationCompat.PRIORITY_MIN)
+                          .setOngoing(true)
+                          .setSilent(true)
+                          .setContentIntent(buildOpenAppIntent("orders"))
+                          .build();
+                  if (Build.VERSION.SDK_INT >= 34) {
+                      startForeground(FG_NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING);
+                  } else {
+                      startForeground(FG_NOTIF_ID, n);
+                  }
+              }
+
+              private void createChannels() {
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+                  NotificationManager nm = getSystemService(NotificationManager.class);
+                  if (nm == null) return;
+
+                  NotificationChannel keepAlive = new NotificationChannel(
+                          CH_KEEPALIVE, "Chutki Background Sync", NotificationManager.IMPORTANCE_MIN);
+                  keepAlive.setShowBadge(false);
+                  nm.createNotificationChannel(keepAlive);
+
+                  NotificationChannel calls = new NotificationChannel(
+                          CH_CALLS, "Incoming Rider Calls", NotificationManager.IMPORTANCE_HIGH);
+                  calls.enableVibration(true);
+                  calls.setVibrationPattern(new long[]{0, 500, 400, 500, 1000});
+                  Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                  AudioAttributes attrs = new AudioAttributes.Builder()
+                          .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                          .build();
+                  calls.setSound(ringtoneUri, attrs);
+                  calls.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                  nm.createNotificationChannel(calls);
+
+                  NotificationChannel orders = new NotificationChannel(
+                          CH_ORDERS, "Order & Delivery Alerts", NotificationManager.IMPORTANCE_HIGH);
+                  orders.enableVibration(true);
+                  orders.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                  nm.createNotificationChannel(orders);
+              }
+
+              private PendingIntent buildOpenAppIntent(String targetTab) {
+                  Intent i = new Intent(this, MainActivity.class);
+                  i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  i.putExtra("tab", targetTab);
+                  int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      flags |= PendingIntent.FLAG_IMMUTABLE;
+                  }
+                  return PendingIntent.getActivity(this, targetTab.hashCode(), i, flags);
+              }
+
+              private void attachFirebaseListeners(final String uid) {
+                  detachListeners();
+                  rootRef = FirebaseDatabase.getInstance(DB_URL).getReference();
+
+                  // 1. Incoming Rider Voice Calls Listener
+                  callInboxRef = rootRef.child("customerCallInbox").child(uid);
+                  callInboxListener = new ValueEventListener() {
+                      @Override
+                      public void onDataChange(@NonNull DataSnapshot snap) {
+                          if (!snap.exists()) return;
+                          String callId = str(snap.child("callId").getValue());
+                          String status = str(snap.child("status").getValue());
+                          String callerRole = str(snap.child("callerRole").getValue());
+                          String riderName = str(snap.child("riderName").getValue());
+                          String orderId = str(snap.child("orderId").getValue());
+                          long updatedAt = num(snap.child("updatedAt").getValue());
+
+                          NotificationManager nm = getSystemService(NotificationManager.class);
+                          if ("RINGING".equals(status) && "RIDER".equals(callerRole)) {
+                              long ageMs = System.currentTimeMillis() - updatedAt;
+                              if (ageMs <= 65000L && !callId.isEmpty() && !callId.equals(lastAlertedCallId)) {
+                                  lastAlertedCallId = callId;
+                                  if (!isAppInForeground) {
+                                      showIncomingCallNotification(
+                                              riderName.isEmpty() ? "Delivery Rider" : riderName,
+                                              orderId
+                                      );
+                                  }
+                              }
+                          } else if (nm != null) {
+                              nm.cancel(CALL_NOTIF_ID);
+                          }
+                      }
+
+                      @Override
+                      public void onCancelled(@NonNull DatabaseError error) {
+                      }
+                  };
+                  callInboxRef.addValueEventListener(callInboxListener);
+
+                  // 2. Order Status + Rider Assignment Listener
+                  final SharedPreferences statePrefs = getSharedPreferences("ChutkiOrderStates", Context.MODE_PRIVATE);
+                  ordersQuery = rootRef.child("orders").orderByChild("customerUid").equalTo(uid);
+                  ordersListener = new ValueEventListener() {
+                      @Override
+                      public void onDataChange(@NonNull DataSnapshot snapshot) {
+                          Set<String> activeOrderIds = new HashSet<>();
+                          for (DataSnapshot child : snapshot.getChildren()) {
+                              String orderId = child.getKey();
+                              if (orderId == null) continue;
+                              String status = str(child.child("status").getValue()).toUpperCase().trim();
+                              if (status.isEmpty()) status = "PLACED";
+                              String deliveryUid = str(child.child("deliveryUid").getValue());
+                              String otp = str(child.child("deliveryOtp").getValue());
+
+                              String prevStatus = statePrefs.getString("st_" + orderId, null);
+                              if (prevStatus != null && !prevStatus.equals(status) && !isAppInForeground) {
+                                  notifyOrderStatusChange(orderId, status, otp);
+                              }
+                              statePrefs.edit().putString("st_" + orderId, status).apply();
+
+                              String prevRider = statePrefs.getString("rd_" + orderId, "");
+                              if (ordersSeeded && prevRider.isEmpty() && !deliveryUid.isEmpty() && !isAppInForeground) {
+                                  postAlertNotification(
+                                          "🛵 Delivery Rider Assigned (#" + tail6(orderId) + ")",
+                                          "Your delivery partner is heading to pick up your order!",
+                                          ("rider_" + orderId).hashCode()
+                                  );
+                              }
+                              if (!deliveryUid.isEmpty()) {
+                                  statePrefs.edit().putString("rd_" + orderId, deliveryUid).apply();
+                              }
+
+                              if (!"DELIVERED".equals(status) && !"CANCELLED".equals(status) && !deliveryUid.isEmpty()) {
+                                  activeOrderIds.add(orderId);
+                                  ensureChatListener(orderId);
+                              }
+                          }
+                          ordersSeeded = true;
+                          pruneInactiveChatListeners(activeOrderIds);
+                      }
+
+                      @Override
+                      public void onCancelled(@NonNull DatabaseError error) {
+                      }
+                  };
+                  ordersQuery.addValueEventListener(ordersListener);
+              }
+
+              private void ensureChatListener(final String orderId) {
+                  if (chatRefs.containsKey(orderId)) return;
+                  DatabaseReference chatRef = rootRef.child("tripChats").child(orderId).child("messages");
+                  ChildEventListener listener = new ChildEventListener() {
+                      @Override
+                      public void onChildAdded(@NonNull DataSnapshot snap, String prev) {
+                          String msgId = snap.getKey();
+                          if (msgId == null) return;
+                          String role = str(snap.child("senderRole").getValue());
+                          String msg = str(snap.child("message").getValue());
+                          String status = str(snap.child("status").getValue());
+                          long ts = num(snap.child("timestamp").getValue());
+                          if ("RIDER".equals(role) && !"READ".equals(status) && ts > serviceStartedAt && !isAppInForeground) {
+                              if (notifiedMsgIds.add(msgId)) {
+                                  postAlertNotification(
+                                          "💬 Message from Rider (#" + tail6(orderId) + ")",
+                                          msg.isEmpty() ? "New message from your delivery partner" : msg,
+                                          msgId.hashCode()
+                                  );
+                              }
+                          }
+                      }
+
+                      @Override public void onChildChanged(@NonNull DataSnapshot s, String p) {}
+                      @Override public void onChildRemoved(@NonNull DataSnapshot s) {}
+                      @Override public void onChildMoved(@NonNull DataSnapshot s, String p) {}
+                      @Override public void onCancelled(@NonNull DatabaseError e) {}
+                  };
+                  chatRef.addChildEventListener(listener);
+                  chatRefs.put(orderId, chatRef);
+                  chatListeners.put(orderId, listener);
+              }
+
+              private void pruneInactiveChatListeners(Set<String> activeOrderIds) {
+                  Set<String> existing = new HashSet<>(chatRefs.keySet());
+                  for (String ordId : existing) {
+                      if (!activeOrderIds.contains(ordId)) {
+                          DatabaseReference r = chatRefs.remove(ordId);
+                          ChildEventListener l = chatListeners.remove(ordId);
+                          if (r != null && l != null) r.removeEventListener(l);
+                      }
+                  }
+              }
+
+              private void showIncomingCallNotification(String riderName, String orderId) {
+                  NotificationManager nm = getSystemService(NotificationManager.class);
+                  if (nm == null) return;
+                  PendingIntent pi = buildOpenAppIntent("orders");
+                  Notification n = new NotificationCompat.Builder(this, CH_CALLS)
+                          .setSmallIcon(android.R.drawable.sym_action_call)
+                          .setContentTitle("📞 Incoming Voice Call • " + riderName)
+                          .setContentText("Order #" + tail6(orderId) + " • Tap to Answer")
+                          .setPriority(NotificationCompat.PRIORITY_MAX)
+                          .setCategory(NotificationCompat.CATEGORY_CALL)
+                          .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                          .setAutoCancel(true)
+                          .setContentIntent(pi)
+                          .setFullScreenIntent(pi, true)
+                          .build();
+                  n.flags |= Notification.FLAG_INSISTENT;
+                  nm.notify(CALL_NOTIF_ID, n);
+              }
+
+              private void notifyOrderStatusChange(String orderId, String status, String otp) {
+                  String shortId = "#" + tail6(orderId);
+                  String title;
+                  String body;
+                  if ("PREPARING".equals(status) || "ACCEPTED".equals(status)) {
+                      title = "👨‍🍳 Order " + shortId + " Preparing";
+                      body = "Partner store is preparing your groceries.";
+                  } else if ("PACKING".equals(status) || "READY_FOR_PICKUP".equals(status)) {
+                      title = "📦 Order " + shortId + " Packed";
+                      body = "Your groceries are packed and ready for pickup!";
+                  } else if ("OUT_FOR_DELIVERY".equals(status)) {
+                      title = "🛵 Order " + shortId + " Out for Delivery!";
+                      body = otp.isEmpty()
+                              ? "Rider is on the way to your doorstep!"
+                              : "Rider is on the way! Delivery PIN: " + otp;
+                  } else if ("DELIVERED".equals(status)) {
+                      title = "🎉 Order " + shortId + " Delivered!";
+                      body = "Enjoy your groceries! Tap to rate your rider.";
+                  } else if ("CANCELLED".equals(status)) {
+                      title = "❌ Order " + shortId + " Cancelled";
+                      body = "Your order was cancelled.";
+                  } else {
+                      title = "Order " + shortId + " Update";
+                      body = "Order status is now " + status.replace("_", " ");
+                  }
+                  postAlertNotification(title, body, ("ord_" + orderId + "_" + status).hashCode());
+              }
+
+              private void postAlertNotification(String title, String body, int notifId) {
+                  NotificationManager nm = getSystemService(NotificationManager.class);
+                  if (nm == null) return;
+                  Notification n = new NotificationCompat.Builder(this, CH_ORDERS)
+                          .setSmallIcon(getApplicationInfo().icon)
+                          .setContentTitle(title)
+                          .setContentText(body)
+                          .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                          .setPriority(NotificationCompat.PRIORITY_HIGH)
+                          .setAutoCancel(true)
+                          .setContentIntent(buildOpenAppIntent("orders"))
+                          .build();
+                  nm.notify(notifId, n);
+              }
+
+              private String str(Object v) {
+                  return v == null ? "" : String.valueOf(v).trim();
+              }
+
+              private long num(Object v) {
+                  if (v instanceof Number) return ((Number) v).longValue();
+                  try {
+                      return v == null ? 0L : Long.parseLong(String.valueOf(v));
+                  } catch (Exception e) {
+                      return 0L;
+                  }
+              }
+
+              private String tail6(String s) {
+                  return s.length() <= 6 ? s : s.substring(s.length() - 6);
+              }
+
+              private void detachListeners() {
+                  if (callInboxRef != null && callInboxListener != null) {
+                      callInboxRef.removeEventListener(callInboxListener);
+                  }
+                  if (ordersQuery != null && ordersListener != null) {
+                      ordersQuery.removeEventListener(ordersListener);
+                  }
+                  for (Map.Entry<String, DatabaseReference> e : chatRefs.entrySet()) {
+                      ChildEventListener l = chatListeners.get(e.getKey());
+                      if (l != null) e.getValue().removeEventListener(l);
+                  }
+                  chatRefs.clear();
+                  chatListeners.clear();
+              }
+
+              @Override
+              public void onTaskRemoved(Intent rootIntent) {
+                  SharedPreferences prefs = getSharedPreferences("ChutkiBgPrefs", Context.MODE_PRIVATE);
+                  String uid = prefs.getString("customerUid", "");
+                  if (uid != null && !uid.trim().isEmpty()) {
+                      try {
+                          Intent restart = new Intent(getApplicationContext(), ChutkiBackgroundAlertService.class);
+                          restart.putExtra("uid", uid.trim());
+                          int flags = PendingIntent.FLAG_ONE_SHOT;
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                              flags |= PendingIntent.FLAG_IMMUTABLE;
+                          }
+                          PendingIntent pi = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                                  ? PendingIntent.getForegroundService(getApplicationContext(), 9001, restart, flags)
+                                  : PendingIntent.getService(getApplicationContext(), 9001, restart, flags);
+                          AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                          if (am != null) {
+                              am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1500, pi);
+                          }
+                      } catch (Exception ignored) {
+                      }
+                  }
+                  super.onTaskRemoved(rootIntent);
+              }
+
+              @Override
+              public void onDestroy() {
+                  detachListeners();
+                  super.onDestroy();
+              }
+
+              @Override
+              public IBinder onBind(Intent intent) {
+                  return null;
+              }
+          }
+          EOF
+
+          node -e '
+            const fs = require("fs");
+            const gradlePath = "android/app/build.gradle";
+            let g = fs.readFileSync(gradlePath, "utf8");
+            if (!g.includes("firebase-database")) {
+              g = g.replace(
+                "dependencies {",
+                "dependencies {\n    implementation platform(\"com.google.firebase:firebase-bom:33.7.0\")\n    implementation \"com.google.firebase:firebase-database\"\n    implementation \"com.google.firebase:firebase-auth\""
+              );
+              fs.writeFileSync(gradlePath, g, "utf8");
+            }
+          '
+
       - name: Configure Fixed Keystore Signing (Fixed SHA-1)
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -78,7 +613,6 @@ jobs:
             exit 1
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d ' \n\r' | base64 --decode > android/app/chutki-fixed.jks
-          echo "=== Fixed Keystore SHA-1 Check ==="
           keytool -list -v -keystore android/app/chutki-fixed.jks -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" | grep -E "SHA1:|SHA256:"
           node -e '
             const fs = require("fs");
@@ -86,18 +620,15 @@ jobs:
             let g = fs.readFileSync(p, "utf8");
             const signingBlock = `    signingConfigs {\n        fixed {\n            storeFile file("chutki-fixed.jks")\n            storePassword System.getenv("KEYSTORE_PASSWORD")\n            keyAlias System.getenv("KEY_ALIAS")\n            keyPassword System.getenv("KEY_PASSWORD")\n        }\n    }\n`;
             const btIdx = g.indexOf("buildTypes");
-            if (btIdx === -1) {
-              throw new Error("❌ buildTypes block not found in android/app/build.gradle");
-            }
+            if (btIdx === -1) throw new Error("buildTypes not found");
             const before = g.slice(0, btIdx);
             let after = g.slice(btIdx);
             after = after.replace(/buildTypes\s*\{/, "buildTypes {\n        debug {\n            signingConfig signingConfigs.fixed\n        }");
             after = after.replace(/release\s*\{/, "release {\n            signingConfig signingConfigs.fixed");
             fs.writeFileSync(p, before + signingBlock + after, "utf8");
-            console.log("✅ Fixed keystore injected into android/app/build.gradle!");
           '
 
-      - name: Add Mic, GPS & Notification Permissions to AndroidManifest.xml
+      - name: Add Permissions & Background Services to AndroidManifest.xml
         run: |
           node -e '
             const fs = require("fs");
@@ -108,7 +639,13 @@ jobs:
               "android.permission.MODIFY_AUDIO_SETTINGS",
               "android.permission.ACCESS_FINE_LOCATION",
               "android.permission.ACCESS_COARSE_LOCATION",
-              "android.permission.POST_NOTIFICATIONS"
+              "android.permission.POST_NOTIFICATIONS",
+              "android.permission.FOREGROUND_SERVICE",
+              "android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING",
+              "android.permission.RECEIVE_BOOT_COMPLETED",
+              "android.permission.VIBRATE",
+              "android.permission.WAKE_LOCK",
+              "android.permission.USE_FULL_SCREEN_INTENT"
             ];
             const toInsert = perms
               .filter(p => !xml.includes(p))
@@ -116,8 +653,12 @@ jobs:
               .join("\n");
             if (toInsert) {
               xml = xml.replace("<application", `${toInsert}\n\n    <application`);
-              fs.writeFileSync(path, xml, "utf8");
             }
+            if (!xml.includes("ChutkiBackgroundAlertService")) {
+              const svcXml = `        <service\n            android:name=".ChutkiBackgroundAlertService"\n            android:enabled="true"\n            android:exported="false"\n            android:foregroundServiceType="remoteMessaging"\n            android:stopWithTask="false" />\n        <receiver\n            android:name=".ChutkiBootReceiver"\n            android:enabled="true"\n            android:exported="true">\n            <intent-filter>\n                <action android:name="android.intent.action.BOOT_COMPLETED" />\n            </intent-filter>\n        </receiver>\n    </application>`;
+              xml = xml.replace("</application>", svcXml);
+            }
+            fs.writeFileSync(path, xml, "utf8");
           '
 
       - name: Build Debug APK (Signed with Fixed SHA-1)
@@ -129,15 +670,6 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
-
-      - name: Verify Fixed SHA-1 in Build Logs
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          cd android
-          ./gradlew signingReport --no-daemon | grep -E "Variant:|SHA1:|SHA-256:" | head -n 12 || true
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

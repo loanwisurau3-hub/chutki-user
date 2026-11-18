@@ -66,6 +66,37 @@ jobs:
           '
           npx cap sync android
 
+      - name: Configure Fixed Keystore Signing (Fixed SHA-1)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "❌ Error: 4 GitHub Secrets mein se koi missing hai!"
+            exit 1
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d ' \n\r' | base64 --decode > android/app/chutki-fixed.jks
+          echo "=== Fixed Keystore SHA-1 Check ==="
+          keytool -list -v -keystore android/app/chutki-fixed.jks -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" | grep -E "SHA1:|SHA256:"
+          node -e '
+            const fs = require("fs");
+            const p = "android/app/build.gradle";
+            let g = fs.readFileSync(p, "utf8");
+            const signingBlock = `    signingConfigs {\n        fixed {\n            storeFile file("chutki-fixed.jks")\n            storePassword System.getenv("KEYSTORE_PASSWORD")\n            keyAlias System.getenv("KEY_ALIAS")\n            keyPassword System.getenv("KEY_PASSWORD")\n        }\n    }\n`;
+            const btIdx = g.indexOf("buildTypes");
+            if (btIdx === -1) {
+              throw new Error("❌ buildTypes block not found in android/app/build.gradle");
+            }
+            const before = g.slice(0, btIdx);
+            let after = g.slice(btIdx);
+            after = after.replace(/buildTypes\s*\{/, "buildTypes {\n        debug {\n            signingConfig signingConfigs.fixed\n        }");
+            after = after.replace(/release\s*\{/, "release {\n            signingConfig signingConfigs.fixed");
+            fs.writeFileSync(p, before + signingBlock + after, "utf8");
+            console.log("✅ Fixed keystore injected into android/app/build.gradle!");
+          '
+
       - name: Add Mic, GPS & Notification Permissions to AndroidManifest.xml
         run: |
           node -e '
@@ -89,13 +120,21 @@ jobs:
             }
           '
 
-      - name: Build Debug APK
+      - name: Build Debug APK (Signed with Fixed SHA-1)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Print APK SHA-1 for Firebase Google Login
+      - name: Verify Fixed SHA-1 in Build Logs
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           cd android
           ./gradlew signingReport --no-daemon | grep -E "Variant:|SHA1:|SHA-256:" | head -n 12 || true

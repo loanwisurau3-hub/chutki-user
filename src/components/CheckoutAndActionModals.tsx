@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { CartItem, GroupedOrder, OrderRecord, Store } from '../types/bazar';
 import {
   buildShareCartUrl,
-  calculateCheckoutSummary,
+  formatDistanceKmLabel,
   getAvailableDeliverySlots,
   groupCartByStore,
 } from '../utils/bazarLogic';
+import { calculateDistanceCheckoutSummary } from '../utils/distanceDelivery';
 import { compressImageToDataUrl, DEFAULT_PRODUCT_IMG } from '../utils/imageUtils';
 import {
   buildVerifiedUpiUri,
@@ -22,6 +23,12 @@ interface CheckoutModalProps {
   adminUpiId: string;
   usedUtrs?: string[];
   baseDeliveryCharge: number;
+  customerLat?: number | null;
+  customerLng?: number | null;
+  baseDeliveryDistanceKm?: number;
+  perKmDeliveryCharge?: number;
+  maxDeliveryCharge?: number;
+  allowDistanceDeliveryCharge?: boolean;
   freeDeliveryMinOrder: number;
   handlingFee: number;
   isPlusActive: boolean;
@@ -78,6 +85,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   adminUpiId,
   usedUtrs,
   baseDeliveryCharge,
+  customerLat = null,
+  customerLng = null,
+  baseDeliveryDistanceKm = 2,
+  perKmDeliveryCharge = 8,
+  maxDeliveryCharge = 0,
+  allowDistanceDeliveryCharge = true,
   freeDeliveryMinOrder,
   handlingFee,
   isPlusActive,
@@ -217,7 +230,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       ? riderTipOptions.filter((n) => Number.isFinite(n) && n > 0)
       : [10, 20, 30, 50];
   const effectiveTip = allowRiderTip ? riderTip : 0;
-  const summary = calculateCheckoutSummary({
+  const summary = calculateDistanceCheckoutSummary({
     items: cartItems,
     stores,
     baseDeliveryCharge,
@@ -229,6 +242,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     paymentMode,
     allowCashback,
     cashbackPercent,
+    customerLat,
+    customerLng,
+    baseDeliveryDistanceKm,
+    perKmDeliveryCharge,
+    maxDeliveryCharge,
+    allowDistanceDeliveryCharge,
   });
   const hasClosedStore = groupedByStore.some((g) => g.isClosed);
   const belowMinOrder = minOrderAmount > 0 && summary.subtotal < minOrderAmount;
@@ -502,7 +521,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               ) : summary.deliveryCharge === 0 ? (
                 <>
                   🎉 <strong>FREE Delivery Unlocked!</strong> (Saved ₹
-                  {baseDeliveryCharge})
+                  {summary.effectiveBaseDeliveryCharge})
                 </>
               ) : (
                 <>
@@ -1227,7 +1246,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <td id="checkout-subtotal-amount">₹{summary.subtotal.toFixed(0)}</td>
               </tr>
               <tr>
-                <th scope="row">Delivery Charge</th>
+                <th scope="row">
+                  Delivery Charge
+                  {summary.deliveryDistanceKm !== null && (
+                    <span className="delivery-dist-tag">
+                      {' '}({formatDistanceKmLabel(summary.deliveryDistanceKm)})
+                    </span>
+                  )}
+                </th>
                 <td id="checkout-delivery-charge">
                   {summary.deliveryCharge === 0 ? (
                     <span className="summary-free-tag">

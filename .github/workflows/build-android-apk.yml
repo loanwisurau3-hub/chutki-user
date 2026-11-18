@@ -18,14 +18,21 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Setup Java 17
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android Platform 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Install web dependencies & build dist
         env:
@@ -40,19 +47,43 @@ jobs:
       - name: Wrap with Capacitor Android
         run: |
           npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "Chutki" "com.chutki.user" --web-dir dist
-          npx cap add android
+          if [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.json ]; then
+            npx cap init "Chutki" "com.chutki.user" --web-dir dist
+          fi
+          if [ ! -d android ]; then
+            npx cap add android
+          else
+            npx cap sync android
+          fi
 
-      - name: Add Mic & GPS Permissions to AndroidManifest.xml
+      - name: Add Mic, GPS & Notification Permissions to AndroidManifest.xml
         run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          sed -i 's|<application|    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n\n    <application|' "$MANIFEST"
+          node -e '
+            const fs = require("fs");
+            const path = "android/app/src/main/AndroidManifest.xml";
+            let xml = fs.readFileSync(path, "utf8");
+            const perms = [
+              "android.permission.RECORD_AUDIO",
+              "android.permission.MODIFY_AUDIO_SETTINGS",
+              "android.permission.ACCESS_FINE_LOCATION",
+              "android.permission.ACCESS_COARSE_LOCATION",
+              "android.permission.POST_NOTIFICATIONS"
+            ];
+            const toInsert = perms
+              .filter(p => !xml.includes(p))
+              .map(p => `    <uses-permission android:name="${p}" />`)
+              .join("\n");
+            if (toInsert) {
+              xml = xml.replace("<application", `${toInsert}\n\n    <application`);
+              fs.writeFileSync(path, xml, "utf8");
+            }
+          '
 
       - name: Build Debug APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

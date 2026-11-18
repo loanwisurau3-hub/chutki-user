@@ -4,8 +4,11 @@
   "webDir": "dist",
   "plugins": {
     "FirebaseAuthentication": {
-      "skipNativeAuth": true,
+      "skipNativeAuth": false,
       "providers": ["google.com"]
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
     }
   }
 }

@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import {
   onAuthStateChanged,
   sendEmailVerification,
@@ -387,7 +389,7 @@ export default function App() {
       }
       setActiveTab((prev) => {
         if (prev === tabName) return prev;
-        if (pushHistory) {
+        if (pushHistory && !Capacitor.isNativePlatform()) {
           window.history.pushState({ screen: tabName }, '');
         }
         return tabName;
@@ -498,7 +500,9 @@ export default function App() {
 
     setCartItems(nextCart);
     setIsCheckoutOpen(true);
-    window.history.pushState({ modal: 'checkout' }, '');
+    if (!Capacitor.isNativePlatform()) {
+      window.history.pushState({ modal: 'checkout' }, '');
+    }
     if (skippedCount > 0) {
       showToast(
         `🛍️ Loaded ${addedUnits} shared item${addedUnits > 1 ? 's' : ''} (${skippedCount} unavailable skipped)`,
@@ -865,6 +869,8 @@ export default function App() {
   }, [currentUser, needsEmailVerification, pushNotification]);
 
   const navStateRef = useRef({
+    activeCall,
+    activeChatGroupKey,
     isInboxOpen,
     refundOrderTarget,
     tipRiderGroupKey,
@@ -877,8 +883,12 @@ export default function App() {
     detailItemRef,
     menuStoreId,
     activeTab,
+    currentCategoryFilter,
+    searchQuery,
   });
   navStateRef.current = {
+    activeCall,
+    activeChatGroupKey,
     isInboxOpen,
     refundOrderTarget,
     tipRiderGroupKey,
@@ -891,75 +901,125 @@ export default function App() {
     detailItemRef,
     menuStoreId,
     activeTab,
+    currentCategoryFilter,
+    searchQuery,
   };
 
-  // Hardware back button / popstate handling (mount-only listener so history entries stay intact)
+  // Android Native Capacitor + Browser Hardware Back Button Handler
   useEffect(() => {
-    if (!window.history.state) {
-      window.history.replaceState({ screen: 'home' }, '');
-    }
-    const handlePopState = () => {
+    const handleBackStep = (isNativeBack: boolean): boolean => {
       const s = navStateRef.current;
+      if (s.activeCall) {
+        showToast('Tap End Call to close active voice call', 'info');
+        return false;
+      }
+      if (s.activeChatGroupKey) {
+        setActiveChatGroupKey(null);
+        return false;
+      }
       if (s.isInboxOpen) {
         setIsInboxOpen(false);
-        return;
+        return false;
       }
       if (s.refundOrderTarget) {
         setRefundOrderTarget(null);
-        return;
+        return false;
       }
       if (s.tipRiderGroupKey) {
         setTipRiderGroupKey(null);
-        return;
+        return false;
       }
       if (s.ratingModalState) {
         setRatingModalState(null);
-        return;
+        return false;
       }
       if (s.isFeedbackOpen) {
         setIsFeedbackOpen(false);
-        return;
+        return false;
       }
       if (s.isDepositOpen) {
         setIsDepositOpen(false);
-        return;
+        return false;
       }
       if (s.isWithdrawOpen) {
         setIsWithdrawOpen(false);
-        return;
+        return false;
       }
       if (s.cancelGroupKey) {
         setCancelGroupKey(null);
-        return;
+        return false;
       }
       if (s.isCheckoutOpen) {
         setIsCheckoutOpen(false);
-        return;
+        return false;
       }
       if (s.detailItemRef) {
         setDetailItemRef(null);
-        return;
+        return false;
       }
       if (s.menuStoreId) {
         setMenuStoreId(null);
-        return;
+        return false;
       }
       if (s.activeTab !== 'home') {
         switchNav('home', false);
-        return;
+        return false;
+      }
+      if (s.searchQuery.trim() !== '' || s.currentCategoryFilter !== 'ALL') {
+        setSearchQuery('');
+        setCurrentCategoryFilter('ALL');
+        return false;
       }
       const now = Date.now();
       if (now - lastBackPressRef.current < 2000) {
-        window.history.back();
-      } else {
-        lastBackPressRef.current = now;
-        showToast('Press BACK again to exit', 'info');
+        return true;
+      }
+      lastBackPressRef.current = now;
+      showToast('Press BACK again to exit', 'info');
+      if (!isNativeBack) {
         window.history.pushState({ screen: 'home' }, '');
+      }
+      return false;
+    };
+
+    if (!Capacitor.isNativePlatform() && !window.history.state) {
+      window.history.replaceState({ screen: 'home' }, '');
+    }
+
+    const handlePopState = () => {
+      if (Capacitor.isNativePlatform()) return;
+      const shouldExit = handleBackStep(false);
+      if (shouldExit) {
+        window.history.back();
       }
     };
 
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+
+    let removed = false;
+    let backHandle: { remove: () => Promise<void> } | null = null;
+    if (Capacitor.isNativePlatform()) {
+      void CapacitorApp.addListener('backButton', () => {
+        const shouldExit = handleBackStep(true);
+        if (shouldExit) {
+          void CapacitorApp.exitApp();
+        }
+      }).then((handle) => {
+        if (removed) {
+          void handle.remove();
+        } else {
+          backHandle = handle;
+        }
+      });
+    }
+
+    return () => {
+      removed = true;
+      window.removeEventListener('popstate', handlePopState);
+      if (backHandle) {
+        void backHandle.remove();
+      }
+    };
   }, [showToast, switchNav]);
 
   // Memoized products & stores lists (prioritizing <= nearbyRadiusKm stores & search hits first)
@@ -1270,7 +1330,9 @@ export default function App() {
       triggerHaptic('cartAdd');
       setCartItems(nextCart);
       setIsCheckoutOpen(true);
-      window.history.pushState({ modal: 'checkout' }, '');
+      if (!Capacitor.isNativePlatform()) {
+        window.history.pushState({ modal: 'checkout' }, '');
+      }
       if (skippedCount > 0) {
         showToast(
           `🛒 Added ${addedUnits} item${addedUnits > 1 ? 's' : ''} (${skippedCount} unavailable skipped)`,
@@ -4075,7 +4137,9 @@ export default function App() {
       }
       const ordId = getCanonicalOrderIdForGroup(group);
       setActiveChatGroupKey(group.groupKey);
-      window.history.pushState({ modal: 'riderChat' }, '');
+      if (!Capacitor.isNativePlatform()) {
+        window.history.pushState({ modal: 'riderChat' }, '');
+      }
 
       // Mark unread Rider messages as READ
       if (isDemoMode) {
@@ -4362,7 +4426,9 @@ export default function App() {
                 onClick={() => {
                   triggerHaptic('tap');
                   setIsInboxOpen(true);
-                  window.history.pushState({ modal: 'inbox' }, '');
+                  if (!Capacitor.isNativePlatform()) {
+                    window.history.pushState({ modal: 'inbox' }, '');
+                  }
                 }}
                 title="Notifications"
               >
@@ -4490,13 +4556,17 @@ export default function App() {
             onToggleFavoriteStore={toggleFavoriteStore}
             onOpenProductDetail={(sId, iId) => {
               setDetailItemRef({ storeId: sId, itemId: iId });
-              window.history.pushState({ modal: 'productDetail' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'productDetail' }, '');
+              }
             }}
             onUpdateCart={updateCartQtySafe}
             onQuickAddStorePopular={handleQuickAddStorePopular}
             onOpenStoreModal={(sId) => {
               setMenuStoreId(sId);
-              window.history.pushState({ modal: 'menu' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'menu' }, '');
+              }
             }}
             pushPermission={pushPermission}
             pushPromptDismissed={promptDismissed}
@@ -4523,27 +4593,39 @@ export default function App() {
             unreadChatCounts={unreadChatCounts}
             onOpenRateRider={(groupKey) => {
               setRatingModalState({ mode: 'RIDER', groupKey });
-              window.history.pushState({ modal: 'rating' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'rating' }, '');
+              }
             }}
             onOpenRateStore={(groupKey) => {
               setRatingModalState({ mode: 'STORE', groupKey });
-              window.history.pushState({ modal: 'rating' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'rating' }, '');
+              }
             }}
             onOpenRateProducts={(groupKey) => {
               setRatingModalState({ mode: 'PRODUCTS', groupKey });
-              window.history.pushState({ modal: 'rating' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'rating' }, '');
+              }
             }}
             onOpenTipRider={(groupKey) => {
               setTipRiderGroupKey(groupKey);
-              window.history.pushState({ modal: 'tipRider' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'tipRider' }, '');
+              }
             }}
             onOpenRefundOrder={(order) => {
               setRefundOrderTarget(order);
-              window.history.pushState({ modal: 'refundOrder' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'refundOrder' }, '');
+              }
             }}
             onOpenCancelOrder={(groupKey) => {
               setCancelGroupKey(groupKey);
-              window.history.pushState({ modal: 'cancel' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'cancel' }, '');
+              }
             }}
             onReorderOrder={handleReorderPastOrder}
             onCallRider={(group) => void handleStartRiderVoiceCall(group)}
@@ -4568,11 +4650,15 @@ export default function App() {
             transactions={walletTransactions}
             onOpenDeposit={() => {
               setIsDepositOpen(true);
-              window.history.pushState({ modal: 'walletDep' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'walletDep' }, '');
+              }
             }}
             onOpenWithdraw={() => {
               setIsWithdrawOpen(true);
-              window.history.pushState({ modal: 'walletWd' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'walletWd' }, '');
+              }
             }}
             onCopyReferral={() => {
               const copyFallback = () => {
@@ -4625,13 +4711,17 @@ export default function App() {
             onSaveProfile={handleSaveProfile}
             onOpenFeedback={() => {
               setIsFeedbackOpen(true);
-              window.history.pushState({ modal: 'feedback' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'feedback' }, '');
+              }
             }}
             onEnablePush={() => void handleEnablePush()}
             onSendTestPush={() => void handleSendTestPush()}
             onOpenNotificationInbox={() => {
               setIsInboxOpen(true);
-              window.history.pushState({ modal: 'inbox' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'inbox' }, '');
+              }
             }}
             onSendPasswordReset={() => void handleSendPasswordReset()}
             onLogout={handleLogout}
@@ -4646,7 +4736,9 @@ export default function App() {
             onClick={() => {
               triggerHaptic('tap');
               setIsCheckoutOpen(true);
-              window.history.pushState({ modal: 'checkout' }, '');
+              if (!Capacitor.isNativePlatform()) {
+                window.history.pushState({ modal: 'checkout' }, '');
+              }
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4737,7 +4829,9 @@ export default function App() {
           onToggleFavoriteStore={toggleFavoriteStore}
           onOpenProductDetail={(sId, iId) => {
             setDetailItemRef({ storeId: sId, itemId: iId });
-            window.history.pushState({ modal: 'productDetail' }, '');
+            if (!Capacitor.isNativePlatform()) {
+              window.history.pushState({ modal: 'productDetail' }, '');
+            }
           }}
           onUpdateCart={updateCartQtySafe}
         />

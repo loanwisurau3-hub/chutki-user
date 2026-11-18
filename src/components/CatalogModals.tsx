@@ -1,6 +1,11 @@
 import React from 'react';
 import type { MenuItem, ProductReview, Store } from '../types/bazar';
-import { getProductStockInfo } from '../utils/bazarLogic';
+import {
+  formatDistanceKmLabel,
+  getProductStockInfo,
+  getStoreDistanceKm,
+} from '../utils/bazarLogic';
+import { calculateDistanceDeliveryFee } from '../utils/distanceDelivery';
 import { DEFAULT_PRODUCT_DETAIL_IMG } from '../utils/imageUtils';
 import { ProductCard } from './ProductCard';
 
@@ -14,6 +19,14 @@ interface StoreMenuModalProps {
   enforceStockLimits?: boolean;
   allowFavoriteStores?: boolean;
   allowStoreRatings?: boolean;
+  customerLat?: number | null;
+  customerLng?: number | null;
+  baseDeliveryCharge?: number;
+  baseDeliveryDistanceKm?: number;
+  perKmDeliveryCharge?: number;
+  maxDeliveryCharge?: number;
+  allowDistanceDeliveryCharge?: boolean;
+  isPlusActive?: boolean;
   getItemQuantityInCart: (itemId: string, storeId: string) => number;
   onClose: () => void;
   onToggleFavorite: (storeId: string, itemId: string, e: React.MouseEvent) => void;
@@ -32,6 +45,14 @@ export const StoreMenuModal: React.FC<StoreMenuModalProps> = ({
   enforceStockLimits = true,
   allowFavoriteStores = true,
   allowStoreRatings = true,
+  customerLat = null,
+  customerLng = null,
+  baseDeliveryCharge = 25,
+  baseDeliveryDistanceKm = 2,
+  perKmDeliveryCharge = 8,
+  maxDeliveryCharge = 0,
+  allowDistanceDeliveryCharge = true,
+  isPlusActive = false,
   getItemQuantityInCart,
   onClose,
   onToggleFavorite,
@@ -49,6 +70,15 @@ export const StoreMenuModal: React.FC<StoreMenuModalProps> = ({
   const entries = Object.entries(items).filter(
     ([_, item]) => item.available !== false && item.adminApproved === true
   );
+  const storeDistanceKm = getStoreDistanceKm(store, customerLat, customerLng);
+  const storeDeliveryFee = calculateDistanceDeliveryFee({
+    distanceKm: storeDistanceKm,
+    baseDeliveryCharge,
+    baseDistanceKm: baseDeliveryDistanceKm,
+    perKmCharge: perKmDeliveryCharge,
+    maxDeliveryCharge,
+    allowDistancePricing: allowDistanceDeliveryCharge,
+  });
 
   return (
     <div id="menu-modal" className="sheet-backdrop" onClick={onClose}>
@@ -87,6 +117,12 @@ export const StoreMenuModal: React.FC<StoreMenuModalProps> = ({
               style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
             >
               {store.cuisine || 'Groceries'}
+              {storeDistanceKm !== null
+                ? ` • 📍 ${formatDistanceKmLabel(storeDistanceKm)}`
+                : ''}
+              {isPlusActive
+                ? ' • 👑 FREE Delivery'
+                : ` • 🚚 Delivery ₹${storeDeliveryFee}`}
             </span>
             {Number(store.storeDiscountPercent || 0) > 0 && (
               <div
@@ -173,12 +209,14 @@ export const StoreMenuModal: React.FC<StoreMenuModalProps> = ({
             entries.map(([itemId, item]) => (
               <ProductCard
                 key={itemId}
-                item={{ ...item, itemId, storeId, storeName }}
+                item={{ ...item, itemId, storeId, storeName, distanceKm: storeDistanceKm }}
                 qtyInCart={getItemQuantityInCart(itemId, storeId)}
                 isFavorite={Boolean(favorites?.[`${storeId}___${itemId}`])}
                 isStoreOpen={isStoreOpen}
                 showStockBadge={showStockBadges}
                 enforceStockLimits={enforceStockLimits}
+                deliveryFeeEstimate={storeDeliveryFee}
+                isFreeDeliveryPass={isPlusActive}
                 onToggleFavorite={onToggleFavorite}
                 onOpenDetail={onOpenProductDetail}
                 onUpdateCart={onUpdateCart}
@@ -199,6 +237,14 @@ interface ProductDetailModalProps {
   favorites: Record<string, boolean> | undefined;
   showStockBadges?: boolean;
   enforceStockLimits?: boolean;
+  customerLat?: number | null;
+  customerLng?: number | null;
+  baseDeliveryCharge?: number;
+  baseDeliveryDistanceKm?: number;
+  perKmDeliveryCharge?: number;
+  maxDeliveryCharge?: number;
+  allowDistanceDeliveryCharge?: boolean;
+  isPlusActive?: boolean;
   getItemQuantityInCart: (itemId: string, storeId: string) => number;
   onClose: () => void;
   onToggleFavorite: (storeId: string, itemId: string, e?: React.MouseEvent) => void;
@@ -214,6 +260,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   favorites,
   showStockBadges = true,
   enforceStockLimits = true,
+  customerLat = null,
+  customerLng = null,
+  baseDeliveryCharge = 25,
+  baseDeliveryDistanceKm = 2,
+  perKmDeliveryCharge = 8,
+  maxDeliveryCharge = 0,
+  allowDistanceDeliveryCharge = true,
+  isPlusActive = false,
   getItemQuantityInCart,
   onClose,
   onToggleFavorite,
@@ -234,6 +288,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     rawItem.available === false || (enforceStockLimits && stockInfo.isOutOfStock);
   const atMaxStock =
     enforceStockLimits && stockInfo.count !== null && qty >= stockInfo.count;
+
+  const itemDistKm = getStoreDistanceKm(store, customerLat, customerLng);
+  const itemDeliveryFee = calculateDistanceDeliveryFee({
+    distanceKm: itemDistKm,
+    baseDeliveryCharge,
+    baseDistanceKm: baseDeliveryDistanceKm,
+    perKmCharge: perKmDeliveryCharge,
+    maxDeliveryCharge,
+    allowDistancePricing: allowDistanceDeliveryCharge,
+  });
 
   const mrp = Number(rawItem.mrp || 0);
   const price = Number(rawItem.price || 0);
@@ -257,6 +321,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     if (!st || st.approved !== true || st.suspended === true || st.isOpen === false) {
       return;
     }
+    const simDistKm = getStoreDistanceKm(st, customerLat, customerLng);
     Object.entries(sItems || {}).forEach(([iId, it]) => {
       if (sId === storeId && iId === itemId) return;
       if (it.available === false || it.adminApproved !== true) return;
@@ -266,7 +331,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
         `${it.name || ''} ${it.searchKeywords || ''}`.toLowerCase().includes(w)
       );
       if (sameCat || kwMatch) {
-        similarList.push({ ...it, itemId: iId, storeId: sId, storeName: st.name });
+        similarList.push({
+          ...it,
+          itemId: iId,
+          storeId: sId,
+          storeName: st.name,
+          distanceKm: simDistKm,
+        });
       }
     });
   });
@@ -388,6 +459,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               {stockInfo.label}
             </span>
           )}
+          <span className={`qc-delivery-pill ${isPlusActive ? 'free' : ''}`}>
+            {isPlusActive
+              ? '👑 FREE Delivery (Chutki Plus)'
+              : itemDistKm !== null
+                ? `🚚 Delivery ₹${itemDeliveryFee} (${formatDistanceKmLabel(itemDistKm)})`
+                : `🚚 Delivery ₹${itemDeliveryFee}`}
+          </span>
         </div>
 
         <p
@@ -554,6 +632,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   isStoreOpen
                   showStockBadge={showStockBadges}
                   enforceStockLimits={enforceStockLimits}
+                  deliveryFeeEstimate={calculateDistanceDeliveryFee({
+                    distanceKm: sim.distanceKm,
+                    baseDeliveryCharge,
+                    baseDistanceKm: baseDeliveryDistanceKm,
+                    perKmCharge: perKmDeliveryCharge,
+                    maxDeliveryCharge,
+                    allowDistancePricing: allowDistanceDeliveryCharge,
+                  })}
+                  isFreeDeliveryPass={isPlusActive}
                   onToggleFavorite={onToggleFavorite}
                   onOpenDetail={onOpenProductDetail}
                   onUpdateCart={onUpdateCart}

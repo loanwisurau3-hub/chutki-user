@@ -363,8 +363,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       let user: User | null = null;
 
       if (Capacitor.isNativePlatform()) {
-        // Native Android/iOS Google Sign-In -> Firebase JS Credential
-        const result = await FirebaseAuthentication.signInWithGoogle();
+        // Classic Google Account Picker (works on all Android devices)
+        const result = await FirebaseAuthentication.signInWithGoogle({
+          useCredentialManager: false,
+        });
         const idToken = result.credential?.idToken;
         if (!idToken) {
           throw new Error('Google ID token missing. Ensure SHA-1 is added in Firebase Console.');

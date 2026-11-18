@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { App as CapacitorApp } from '@capacitor/app';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import {
   onAuthStateChanged,
   sendEmailVerification,
@@ -32,7 +32,6 @@ import type {
 import {
   DEFAULT_CATEGORIES,
   DEFAULT_NEARBY_RADIUS_KM,
-  calculateOrderCashback,
   darkenHexColor,
   decodeCartFromShareParam,
   deriveGroupOrderStatus,
@@ -52,6 +51,11 @@ import {
   sortProductsByProximity,
   sortStoresByProximity,
 } from './utils/bazarLogic';
+import {
+  DEFAULT_BASE_DELIVERY_DISTANCE_KM,
+  DEFAULT_PER_KM_DELIVERY_CHARGE,
+  calculateDistanceCheckoutSummary,
+} from './utils/distanceDelivery';
 import {
   collectKnownUtrs,
   detectSpamContent,
@@ -132,6 +136,7 @@ import {
   type RingtoneController,
   type WebRtcCallSession,
 } from './utils/webrtcCallEngine';
+
 const ChutkiBgBridge = registerPlugin<{
   startAlertService: (opts: { uid: string }) => Promise<void>;
   stopAlertService: () => Promise<void>;
@@ -526,6 +531,19 @@ export default function App() {
   const appBrandName = settings.appBrandName || 'Chutki';
   const baseDeliveryCharge =
     settings.deliveryCharge !== undefined ? Number(settings.deliveryCharge) : 25;
+  const allowDistanceDeliveryCharge = settings.allowDistanceDeliveryCharge !== false;
+  const baseDeliveryDistanceKm =
+    settings.baseDeliveryDistanceKm !== undefined
+      ? Math.max(0, Number(settings.baseDeliveryDistanceKm))
+      : DEFAULT_BASE_DELIVERY_DISTANCE_KM;
+  const perKmDeliveryCharge =
+    settings.perKmDeliveryCharge !== undefined
+      ? Math.max(0, Number(settings.perKmDeliveryCharge))
+      : DEFAULT_PER_KM_DELIVERY_CHARGE;
+  const maxDeliveryCharge =
+    settings.maxDeliveryCharge !== undefined
+      ? Math.max(0, Number(settings.maxDeliveryCharge))
+      : 0;
   const freeDeliveryMinOrder =
     settings.freeDeliveryAbove !== undefined
       ? Number(settings.freeDeliveryAbove)
@@ -719,12 +737,15 @@ export default function App() {
     });
     return () => unsub();
   }, []);
-useEffect(() => {
+
+  // Start Native Android Background Alert Service on login
+  useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     if (currentUser && !needsEmailVerification) {
       void ChutkiBgBridge.startAlertService({ uid: currentUser.uid }).catch(() => {});
     }
   }, [currentUser, needsEmailVerification]);
+
   useEffect(() => {
     if (verifyResendCooldownSec <= 0) return undefined;
     const timer = window.setTimeout(() => {
@@ -2000,7 +2021,7 @@ useEffect(() => {
       cardLast4 = cardCheck.last4 || '';
     }
 
-    // Group & calculate net payable using catalog-verified prices
+    // Group & calculate net payable using catalog-verified prices + live distance
     const storeBatches: Record<
       string,
       { storeName: string; items: CartItem[]; subtotal: number }
@@ -2020,20 +2041,6 @@ useEffect(() => {
       totalItemsSubtotal += item.price * item.qty;
     });
 
-    let totalStoreDiscount = 0;
-    Object.entries(storeBatches).forEach(([sId, batch]) => {
-      const st = stores[sId];
-      if (!st) return;
-      const pct = Number(st.storeDiscountPercent || 0);
-      const minOrd = Number(st.storeDiscountMinOrder || 0);
-      if (pct > 0 && batch.subtotal >= minOrd) {
-        totalStoreDiscount += Math.round((batch.subtotal * pct) / 100);
-      }
-    });
-
-    const isFreeDelivery =
-      (allowChutkiPlus && isPlusActive) || totalItemsSubtotal >= freeDeliveryMinOrder;
-    const delCharge = isFreeDelivery ? 0 : baseDeliveryCharge;
     const activeHandling = handlingFee > 0 ? handlingFee : 0;
     const cleanTip = allowRiderTip
       ? Math.max(0, Math.min(500, Math.round(Number(payload.riderTip || 0))))
@@ -2052,27 +2059,31 @@ useEffect(() => {
       totalItemsSubtotal >= targetCouponMinOrder;
     const effectiveCouponDiscount = isCouponValid ? targetCouponDiscount : 0;
     const effectiveCouponCode = isCouponValid ? submittedCouponCode : '';
-    const netPayableTotal = Math.max(
-      1,
-      totalItemsSubtotal +
-        delCharge +
-        activeHandling +
-        cleanTip -
-        totalStoreDiscount -
-        effectiveCouponDiscount
-    );
 
-    const cashbackEligibleAmount = Math.max(
-      0,
-      totalItemsSubtotal - totalStoreDiscount - effectiveCouponDiscount
-    );
-    const cashbackEarned = allowCashback
-      ? calculateOrderCashback(
-          cashbackEligibleAmount,
-          payload.paymentMode,
-          cashbackPercent
-        )
-      : 0;
+    const distanceCheckout = calculateDistanceCheckoutSummary({
+      items: verifiedCartItems,
+      stores,
+      baseDeliveryCharge,
+      freeDeliveryMinOrder,
+      handlingFee: activeHandling,
+      appliedDiscount: effectiveCouponDiscount,
+      riderTip: cleanTip,
+      isPlusActive,
+      paymentMode: payload.paymentMode,
+      allowCashback,
+      cashbackPercent,
+      customerLat: activeCustomerLat,
+      customerLng: activeCustomerLng,
+      baseDeliveryDistanceKm,
+      perKmDeliveryCharge,
+      maxDeliveryCharge,
+      allowDistanceDeliveryCharge,
+    });
+
+    const isFreeDelivery =
+      (allowChutkiPlus && isPlusActive) || totalItemsSubtotal >= freeDeliveryMinOrder;
+    const netPayableTotal = distanceCheckout.netPayable;
+    const cashbackEarned = distanceCheckout.cashbackEarned;
 
     if (payload.paymentMode === 'WALLET') {
       const curBal = Number(customerProfile?.walletBalance || 0);
@@ -2157,7 +2168,7 @@ useEffect(() => {
           const batchDeliveryCharge = isFreeDelivery
             ? 0
             : isFirst
-              ? baseDeliveryCharge
+              ? distanceCheckout.effectiveBaseDeliveryCharge
               : 0;
           const batchHandlingFee =
             handlingFee > 0 && isFirst ? handlingFee : 0;
@@ -2195,6 +2206,7 @@ useEffect(() => {
             items: batch.items,
             subtotalAmount: Number(batch.subtotal.toFixed(2)),
             deliveryCharge: Number(batchDeliveryCharge.toFixed(2)),
+            deliveryDistanceKm: distanceCheckout.deliveryDistanceKm,
             handlingFee: Number(batchHandlingFee.toFixed(2)),
             riderTip: batchTip,
             deliverySlot,
@@ -2392,7 +2404,7 @@ useEffect(() => {
         const batchDeliveryCharge = isFreeDelivery
           ? 0
           : isFirst
-            ? baseDeliveryCharge
+            ? distanceCheckout.effectiveBaseDeliveryCharge
             : 0;
         const batchHandlingFee =
           handlingFee > 0 && isFirst ? handlingFee : 0;
@@ -2430,6 +2442,7 @@ useEffect(() => {
           items: batch.items,
           subtotalAmount: Number(batch.subtotal.toFixed(2)),
           deliveryCharge: Number(batchDeliveryCharge.toFixed(2)),
+          deliveryDistanceKm: distanceCheckout.deliveryDistanceKm,
           handlingFee: Number(batchHandlingFee.toFixed(2)),
           riderTip: batchTip,
           deliverySlot,
@@ -3403,7 +3416,7 @@ useEffect(() => {
     }
   };
 
- const handleLogout = () => {
+  const handleLogout = () => {
     setCartItems([]);
     try {
       localStorage.removeItem(CART_STORAGE_KEY);
@@ -4558,6 +4571,12 @@ useEffect(() => {
             enforceStockLimits={enforceStockLimits}
             customerLat={activeCustomerLat}
             customerLng={activeCustomerLng}
+            baseDeliveryCharge={baseDeliveryCharge}
+            baseDeliveryDistanceKm={baseDeliveryDistanceKm}
+            perKmDeliveryCharge={perKmDeliveryCharge}
+            maxDeliveryCharge={maxDeliveryCharge}
+            allowDistanceDeliveryCharge={allowDistanceDeliveryCharge}
+            isPlusActive={isPlusActive}
             nearbyRadiusKm={nearbyRadiusKm}
             prioritizeNearbyStores={prioritizeNearbyStores}
             searchQuery={searchQuery}
@@ -4837,6 +4856,14 @@ useEffect(() => {
           enforceStockLimits={enforceStockLimits}
           allowFavoriteStores={allowFavoriteStores}
           allowStoreRatings={allowStoreRatings}
+          customerLat={activeCustomerLat}
+          customerLng={activeCustomerLng}
+          baseDeliveryCharge={baseDeliveryCharge}
+          baseDeliveryDistanceKm={baseDeliveryDistanceKm}
+          perKmDeliveryCharge={perKmDeliveryCharge}
+          maxDeliveryCharge={maxDeliveryCharge}
+          allowDistanceDeliveryCharge={allowDistanceDeliveryCharge}
+          isPlusActive={isPlusActive}
           getItemQuantityInCart={getItemQuantityInCart}
           onClose={() => setMenuStoreId(null)}
           onToggleFavorite={toggleFavoriteItem}
@@ -4858,6 +4885,14 @@ useEffect(() => {
           favorites={customerProfile?.favorites}
           showStockBadges={showStockBadges}
           enforceStockLimits={enforceStockLimits}
+          customerLat={activeCustomerLat}
+          customerLng={activeCustomerLng}
+          baseDeliveryCharge={baseDeliveryCharge}
+          baseDeliveryDistanceKm={baseDeliveryDistanceKm}
+          perKmDeliveryCharge={perKmDeliveryCharge}
+          maxDeliveryCharge={maxDeliveryCharge}
+          allowDistanceDeliveryCharge={allowDistanceDeliveryCharge}
+          isPlusActive={isPlusActive}
           getItemQuantityInCart={getItemQuantityInCart}
           onClose={() => setDetailItemRef(null)}
           onToggleFavorite={toggleFavoriteItem}
@@ -4875,6 +4910,12 @@ useEffect(() => {
           adminUpiId={adminUpiId}
           usedUtrs={Array.from(collectKnownUtrs(cachedOrders, localUsedUtrs))}
           baseDeliveryCharge={baseDeliveryCharge}
+          customerLat={activeCustomerLat}
+          customerLng={activeCustomerLng}
+          baseDeliveryDistanceKm={baseDeliveryDistanceKm}
+          perKmDeliveryCharge={perKmDeliveryCharge}
+          maxDeliveryCharge={maxDeliveryCharge}
+          allowDistanceDeliveryCharge={allowDistanceDeliveryCharge}
           freeDeliveryMinOrder={freeDeliveryMinOrder}
           handlingFee={handlingFee}
           isPlusActive={isPlusActive}

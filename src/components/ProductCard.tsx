@@ -10,6 +10,8 @@ interface ProductCardProps {
   isStoreOpen?: boolean;
   showStockBadge?: boolean;
   enforceStockLimits?: boolean;
+  deliveryFeeEstimate?: number | null;
+  isFreeDeliveryPass?: boolean;
   onToggleFavorite: (storeId: string, itemId: string, e: React.MouseEvent) => void;
   onOpenDetail: (storeId: string, itemId: string) => void;
   onUpdateCart: (itemId: string, storeId: string, change: number, e: React.MouseEvent) => void;
@@ -22,6 +24,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   isStoreOpen = true,
   showStockBadge = true,
   enforceStockLimits = true,
+  deliveryFeeEstimate,
+  isFreeDeliveryPass = false,
   onToggleFavorite,
   onOpenDetail,
   onUpdateCart,
@@ -36,6 +40,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     item.available === false || (enforceStockLimits && stock.isOutOfStock);
   const atMaxStock =
     enforceStockLimits && stock.count !== null && qtyInCart >= stock.count;
+  const resolvedDelFee =
+    typeof deliveryFeeEstimate === 'number'
+      ? deliveryFeeEstimate
+      : item.deliveryFeeEstimate;
 
   return (
     <div className={`qc-product-card ${blockOutOfStock ? 'is-out-of-stock' : ''}`}>
@@ -91,6 +99,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               📍 {formatDistanceKmLabel(item.distanceKm)}
             </span>
           )}
+          {isFreeDeliveryPass ? (
+            <span className="qc-delivery-pill free">👑 FREE Del</span>
+          ) : typeof resolvedDelFee === 'number' && Number.isFinite(resolvedDelFee) ? (
+            <span
+              className="qc-delivery-pill"
+              data-testid={`product-delivery-${item.itemId}`}
+            >
+              🚚 {resolvedDelFee === 0 ? 'FREE Del' : `₹${resolvedDelFee.toFixed(0)} Del`}
+            </span>
+          ) : null}
           {item.ratingCount ? (
             <span className="qc-rating-pill">
               ⭐ {Number(item.ratingAvg || 5).toFixed(1)} ({item.ratingCount})

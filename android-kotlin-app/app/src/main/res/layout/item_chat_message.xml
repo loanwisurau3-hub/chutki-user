@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingVertical="4dp">
+
+    <!-- Rider Message on Left -->
+    <TextView
+        android:id="@+id/tvBubbleLeft"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start"
+        android:background="#FFFFFF"
+        android:elevation="1dp"
+        android:maxWidth="280dp"
+        android:padding="10dp"
+        android:textColor="#0F172A"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <!-- Customer Message on Right -->
+    <TextView
+        android:id="@+id/tvBubbleRight"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:background="#DCF8C6"
+        android:elevation="1dp"
+        android:maxWidth="280dp"
+        android:padding="10dp"
+        android:textColor="#064E3B"
+        android:textSize="14sp"
+        android:visibility="gone" />
+</LinearLayout>

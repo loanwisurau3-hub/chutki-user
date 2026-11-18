@@ -1,0 +1,98 @@
+{
+  "project_info": {
+    "project_number": "396740286096",
+    "firebase_url": "https://test-2a0d0-default-rtdb.firebaseio.com",
+    "project_id": "test-2a0d0",
+    "storage_bucket": "test-2a0d0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:396740286096:android:79945c61b4a97676946a15",
+        "android_client_info": {
+          "package_name": "com.chutki.user"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTazJUyH1LD3GBBfS1ESZelm4rGpdGkHY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:396740286096:android:3e8a1cbb9a157c40946a15",
+        "android_client_info": {
+          "package_name": "com.gossaigaon.bazar"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTazJUyH1LD3GBBfS1ESZelm4rGpdGkHY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:396740286096:android:69c76052d47a1db2946a15",
+        "android_client_info": {
+          "package_name": "com.gossaigaon.rider"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTazJUyH1LD3GBBfS1ESZelm4rGpdGkHY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

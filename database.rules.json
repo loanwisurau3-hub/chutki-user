@@ -1,0 +1,146 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "admin": {
+      ".read": true,
+      ".write": "auth != null && root.child('customers').child(auth.uid).child('isAdmin').val() === true"
+    },
+    "restaurants": {
+      ".read": true,
+      "$storeId": {
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || auth.uid === $storeId)"
+      }
+    },
+    "menus": {
+      ".read": true,
+      "$storeId": {
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || auth.uid === $storeId)"
+      }
+    },
+    "deliveryPartners": {
+      ".read": true,
+      "$riderId": {
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || auth.uid === $riderId)"
+      }
+    },
+    "customers": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (auth.uid === $uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        "isAdmin": {
+          ".write": "auth != null && root.child('customers').child(auth.uid).child('isAdmin').val() === true"
+        },
+        "blocked": {
+          ".write": "auth != null && root.child('customers').child(auth.uid).child('isAdmin').val() === true"
+        },
+        "walletBalance": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 200000"
+        },
+        "spamScore": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && (!data.exists() || newData.val() >= data.val() || root.child('customers').child(auth.uid).child('isAdmin').val() === true)"
+        }
+      }
+    },
+    "orders": {
+      ".indexOn": ["customerUid", "restaurantId", "deliveryUid", "batchGroupId", "createdAt"],
+      "$orderId": {
+        ".read": "auth != null && (data.child('customerUid').val() === auth.uid || data.child('deliveryUid').val() === auth.uid || data.child('restaurantId').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || (!data.exists() && newData.child('customerUid').val() === auth.uid && newData.child('status').val() === 'PLACED' && newData.child('totalAmount').isNumber() && newData.child('totalAmount').val() > 0 && newData.child('totalAmount').val() <= 100000) || (data.exists() && (data.child('customerUid').val() === auth.uid || data.child('deliveryUid').val() === auth.uid || data.child('restaurantId').val() === auth.uid)))"
+      }
+    },
+    "inAppCalls": {
+      "$orderOrTripId": {
+        ".read": "auth != null && (data.child('customerUid').val() === auth.uid || data.child('riderUid').val() === auth.uid || root.child('orders').child($orderOrTripId).child('customerUid').val() === auth.uid || root.child('orders').child($orderOrTripId).child('deliveryUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || (!data.exists() && ((newData.child('callerRole').val() === 'CUSTOMER' && newData.child('customerUid').val() === auth.uid) || (newData.child('callerRole').val() === 'RIDER' && newData.child('riderUid').val() === auth.uid))) || (data.exists() && (data.child('customerUid').val() === auth.uid || data.child('riderUid').val() === auth.uid)))",
+        ".validate": "!newData.exists() || (newData.hasChildren(['callId', 'orderId', 'callerRole', 'riderUid', 'customerUid', 'status', 'updatedAt']) && (!data.exists() || (newData.child('customerUid').val() === data.child('customerUid').val() && newData.child('riderUid').val() === data.child('riderUid').val())) && (newData.child('status').val() === 'CALLING' || newData.child('status').val() === 'RINGING' || newData.child('status').val() === 'CONNECTING' || newData.child('status').val() === 'CONNECTED' || newData.child('status').val() === 'DECLINED' || newData.child('status').val() === 'BUSY' || newData.child('status').val() === 'ENDED' || newData.child('status').val() === 'FAILED' || newData.child('status').val() === 'TIMEOUT'))"
+      }
+    },
+    "customerCallInbox": {
+      "$customerUid": {
+        ".read": "auth != null && (auth.uid === $customerUid || data.child('riderUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (auth.uid === $customerUid || newData.child('riderUid').val() === auth.uid || data.child('riderUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".validate": "!newData.exists() || (newData.child('customerUid').val() === $customerUid && (newData.child('status').val() === 'CALLING' || newData.child('status').val() === 'RINGING' || newData.child('status').val() === 'CONNECTING' || newData.child('status').val() === 'CONNECTED' || newData.child('status').val() === 'DECLINED' || newData.child('status').val() === 'BUSY' || newData.child('status').val() === 'ENDED' || newData.child('status').val() === 'FAILED' || newData.child('status').val() === 'TIMEOUT'))"
+      }
+    },
+    "riderCallInbox": {
+      "$riderUid": {
+        ".read": "auth != null && (auth.uid === $riderUid || data.child('customerUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (auth.uid === $riderUid || newData.child('customerUid').val() === auth.uid || data.child('customerUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".validate": "!newData.exists() || (newData.child('riderUid').val() === $riderUid && (newData.child('status').val() === 'CALLING' || newData.child('status').val() === 'RINGING' || newData.child('status').val() === 'CONNECTING' || newData.child('status').val() === 'CONNECTED' || newData.child('status').val() === 'DECLINED' || newData.child('status').val() === 'BUSY' || newData.child('status').val() === 'ENDED' || newData.child('status').val() === 'FAILED' || newData.child('status').val() === 'TIMEOUT'))"
+      }
+    },
+    "tripChats": {
+      "$orderId": {
+        ".read": "auth != null && (root.child('orders').child($orderId).child('customerUid').val() === auth.uid || root.child('orders').child($orderId).child('deliveryUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        "messages": {
+          ".indexOn": ["timestamp"],
+          "$messageId": {
+            ".write": "auth != null && (root.child('orders').child($orderId).child('customerUid').val() === auth.uid || root.child('orders').child($orderId).child('deliveryUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true) && ((!data.exists() && newData.child('senderUid').val() === auth.uid && ((newData.child('senderRole').val() === 'CUSTOMER' && root.child('orders').child($orderId).child('customerUid').val() === auth.uid) || (newData.child('senderRole').val() === 'RIDER' && root.child('orders').child($orderId).child('deliveryUid').val() === auth.uid))) || (data.exists() && (data.child('senderUid').val() === auth.uid || data.child('receiverUid').val() === auth.uid) && newData.child('senderUid').val() === data.child('senderUid').val() && newData.child('senderRole').val() === data.child('senderRole').val() && newData.child('message').val() === data.child('message').val()))",
+            ".validate": "newData.hasChildren(['messageId', 'senderUid', 'senderRole', 'receiverUid', 'messageType', 'message', 'timestamp', 'status']) && newData.child('messageType').val() === 'TEXT' && (newData.child('senderRole').val() === 'CUSTOMER' || newData.child('senderRole').val() === 'RIDER') && newData.child('message').isString() && newData.child('message').val().length >= 1 && newData.child('message').val().length <= 500 && (newData.child('status').val() === 'SENT' || newData.child('status').val() === 'DELIVERED' || newData.child('status').val() === 'READ')"
+          }
+        }
+      }
+    },
+    "usedUtrs": {
+      "$utr": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".validate": "newData.hasChildren(['uid', 'createdAt']) && newData.child('uid').val() === auth.uid"
+      }
+    },
+    "walletTransactions": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        "$txId": {
+          ".write": "auth != null && (auth.uid === $uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+          ".validate": "newData.hasChildren(['type', 'amount', 'createdAt']) && (newData.child('type').val() === 'CREDIT' || newData.child('type').val() === 'DEBIT') && newData.child('amount').isNumber() && newData.child('amount').val() > 0 && newData.child('amount').val() <= 100000"
+        }
+      }
+    },
+    "walletRequests": {
+      "$reqId": {
+        ".read": "auth != null && (data.child('customerUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || (!data.exists() && newData.child('customerUid').val() === auth.uid && newData.child('status').val() === 'PENDING' && newData.child('amount').isNumber() && newData.child('amount').val() > 0))"
+      }
+    },
+    "refundRequests": {
+      "$reqId": {
+        ".read": "auth != null && (data.child('customerUid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || (!data.exists() && newData.child('customerUid').val() === auth.uid && newData.child('status').val() === 'REQUESTED' && newData.child('amount').isNumber() && newData.child('amount').val() > 0))"
+      }
+    },
+    "feedbacks": {
+      "$fbId": {
+        ".read": "auth != null && (data.child('uid').val() === auth.uid || root.child('customers').child(auth.uid).child('isAdmin').val() === true)",
+        ".write": "auth != null && (root.child('customers').child(auth.uid).child('isAdmin').val() === true || (!data.exists() && newData.child('uid').val() === auth.uid && newData.child('status').val() === 'OPEN'))"
+      }
+    },
+    "productReviews": {
+      ".read": true,
+      "$storeId": {
+        "$itemId": {
+          "$reviewId": {
+            ".write": "auth != null && newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5"
+          }
+        }
+      }
+    },
+    "storeRatings": {
+      ".read": true,
+      "$storeId": {
+        "$ratingId": {
+          ".write": "auth != null && newData.child('customerUid').val() === auth.uid && newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5"
+        }
+      }
+    },
+    "riderRatings": {
+      ".read": true,
+      "$riderId": {
+        "$ratingId": {
+          ".write": "auth != null && newData.child('customerUid').val() === auth.uid && newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5"
+        }
+      }
+    }
+  }
+}

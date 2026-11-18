@@ -1,0 +1,6 @@
+{
+  "name": "Gossaigaon Bazar",
+  "description": "Gossaigaon Bazar - 15-Minute Local Grocery Delivery App with live order tracking, multi-store basket, wallet, and push notifications.",
+  "requestFramePermissions": ["geolocation", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

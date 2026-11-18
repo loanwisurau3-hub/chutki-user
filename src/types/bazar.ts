@@ -43,6 +43,7 @@ export interface MenuItem {
   ratingCount?: number;
   distanceKm?: number | null;
   isWithinNearbyRadius?: boolean;
+  deliveryFeeEstimate?: number | null;
 }
 
 export interface CartItem {
@@ -108,6 +109,7 @@ export interface OrderRecord {
   items: CartItem[] | Record<string, CartItem>;
   subtotalAmount?: number;
   deliveryCharge?: number;
+  deliveryDistanceKm?: number | null;
   handlingFee?: number;
   riderTip?: number;
   deliverySlot?: string;
@@ -221,6 +223,10 @@ export interface AdminSettings {
   searchPlaceholder?: string;
   upiId?: string;
   deliveryCharge?: number;
+  allowDistanceDeliveryCharge?: boolean;
+  baseDeliveryDistanceKm?: number;
+  perKmDeliveryCharge?: number;
+  maxDeliveryCharge?: number;
   freeDeliveryAbove?: number;
   handlingFee?: number;
   allowChutkiPlus?: boolean;
@@ -381,4 +387,3 @@ export interface TripChatMessage {
   timestamp: number;
   status: TripChatMessageStatus;
 }
-

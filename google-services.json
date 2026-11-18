@@ -1,0 +1,159 @@
+{
+  "project_info": {
+    "project_number": "396740286096",
+    "firebase_url": "https://test-2a0d0-default-rtdb.firebaseio.com",
+    "project_id": "test-2a0d0",
+    "storage_bucket": "test-2a0d0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:396740286096:android:3e8a1cbb9a157c40946a15",
+        "android_client_info": {
+          "package_name": "com.gossaigaon.bazar"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "396740286096-vq0koh58718185ss3e7iuh3rs90faqms.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gossaigaon.bazar",
+            "certificate_hash": "8880de672c3dc68c6d80564fe439c5c6c272e5ef"
+          }
+        },
+        {
+          "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTazJUyH1LD3GBBfS1ESZelm4rGpdGkHY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:396740286096:android:69c76052d47a1db2946a15",
+        "android_client_info": {
+          "package_name": "com.gossaigaon.rider"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "396740286096-jmttsgjp2u7712kbvu9h94atgpaub89n.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gossaigaon.rider",
+            "certificate_hash": "fcb9ba2928ebcc55ad1d82638f4286e896ae966c"
+          }
+        },
+        {
+          "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTazJUyH1LD3GBBfS1ESZelm4rGpdGkHY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:396740286096:android:6e537f00fdd01831946a15",
+        "android_client_info": {
+          "package_name": "com.gossaigaon.store"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "396740286096-b6f9em3tf1cvgsnpqpu6ckghulgchcqr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gossaigaon.store",
+            "certificate_hash": "5f8aa14b36304c2801941bad6767a533b72c5c48"
+          }
+        },
+        {
+          "client_id": "396740286096-rqgkqb8locejqtvtrogi8qe7hf9n6bmh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gossaigaon.store",
+            "certificate_hash": "6286be9b403159f8736ae4247b76cbbe2c6f0c08"
+          }
+        },
+        {
+          "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTazJUyH1LD3GBBfS1ESZelm4rGpdGkHY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:396740286096:android:dce4e6e71fcd125a946a15",
+        "android_client_info": {
+          "package_name": "com.gossaigaonbazar.admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTazJUyH1LD3GBBfS1ESZelm4rGpdGkHY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "396740286096-qpdnc5g4ja1jv7p7i04dns4or9dvpc3n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

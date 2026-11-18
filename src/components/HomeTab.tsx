@@ -11,6 +11,7 @@ import {
   isStoreWithinRadius,
 } from '../utils/bazarLogic';
 import { DEFAULT_STORE_IMG } from '../utils/imageUtils';
+import { calculateDistanceDeliveryFee } from '../utils/distanceDelivery';
 import { ProductCard } from './ProductCard';
 import { PushPermissionBanner } from './PWAControls';
 import type { PushPermissionState } from '../hooks/usePushNotifications';
@@ -33,6 +34,12 @@ interface HomeTabProps {
   enforceStockLimits?: boolean;
   customerLat?: number | null;
   customerLng?: number | null;
+  baseDeliveryCharge?: number;
+  baseDeliveryDistanceKm?: number;
+  perKmDeliveryCharge?: number;
+  maxDeliveryCharge?: number;
+  allowDistanceDeliveryCharge?: boolean;
+  isPlusActive?: boolean;
   nearbyRadiusKm?: number;
   prioritizeNearbyStores?: boolean;
   searchQuery?: string;
@@ -70,6 +77,12 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   enforceStockLimits = true,
   customerLat = null,
   customerLng = null,
+  baseDeliveryCharge = 25,
+  baseDeliveryDistanceKm = 2,
+  perKmDeliveryCharge = 8,
+  maxDeliveryCharge = 0,
+  allowDistanceDeliveryCharge = true,
+  isPlusActive = false,
   nearbyRadiusKm = DEFAULT_NEARBY_RADIUS_KM,
   prioritizeNearbyStores = true,
   searchQuery = '',
@@ -388,6 +401,15 @@ export const HomeTab: React.FC<HomeTabProps> = ({
                   isStoreOpen
                   showStockBadge={showStockBadges}
                   enforceStockLimits={enforceStockLimits}
+                  deliveryFeeEstimate={calculateDistanceDeliveryFee({
+                    distanceKm: item.distanceKm,
+                    baseDeliveryCharge,
+                    baseDistanceKm: baseDeliveryDistanceKm,
+                    perKmCharge: perKmDeliveryCharge,
+                    maxDeliveryCharge,
+                    allowDistancePricing: allowDistanceDeliveryCharge,
+                  })}
+                  isFreeDeliveryPass={isPlusActive}
                   onToggleFavorite={onToggleFavorite}
                   onOpenDetail={onOpenProductDetail}
                   onUpdateCart={onUpdateCart}

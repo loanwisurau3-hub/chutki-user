@@ -1,0 +1,11 @@
+{
+  "appId": "com.chutki.user",
+  "appName": "Chutki",
+  "webDir": "dist",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": ["google.com"]
+    }
+  }
+}

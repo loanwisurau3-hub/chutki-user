@@ -653,7 +653,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                                 </div>
                               </div>
                               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                {/* NORMAL PHONE CALL BUTTON - DIRECT CELLULAR DIALER */}
+                                {/* NORMAL SIM / CELLULAR PHONE CALL BUTTON */}
                                 {canComm && (
                                   riderPhone ? (
                                     <a

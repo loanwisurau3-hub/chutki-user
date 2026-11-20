@@ -363,7 +363,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       let user: User | null = null;
 
       if (Capacitor.isNativePlatform()) {
-        // Classic Google Account Picker (works on all Android devices)
         const result = await FirebaseAuthentication.signInWithGoogle({
           useCredentialManager: false,
         });
@@ -375,7 +374,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         const cred = await signInWithCredential(auth, credential);
         user = cred.user;
       } else {
-        // Web / Mobile Browser Google Sign-In with Redirect Fallback
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: 'select_account' });
         try {
@@ -417,22 +415,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     <div id="auth-screen">
       <div className="auth-screen-inner">
         <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
-          <div
-            style={{
-              width: '66px',
-              height: '66px',
-              borderRadius: '20px',
-              background: 'var(--brand-green-light)',
-              color: 'var(--brand-green)',
-              fontSize: '2.1rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 0.75rem',
-              border: '2px solid var(--brand-green)',
-            }}
-          >
-            🛒
+          {/* NAYA BRAND LOGO (Replaces plain emoji) */}
+          <div className="mx-auto mb-3 flex items-center justify-center">
+            <img
+              src="/icon.svg"
+              alt={brandName}
+              className="h-16 w-16 object-contain rounded-2xl shadow-md border-2 border-emerald-500/20"
+            />
           </div>
           <h1
             style={{ fontSize: '1.75rem', fontWeight: 900, letterSpacing: '-0.5px' }}
@@ -782,8 +771,12 @@ export const EmailVerificationScreen: React.FC<EmailVerificationScreenProps> = (
       aria-labelledby="email-verify-title"
     >
       <div className="verify-email-card">
-        <div className="verify-email-icon" aria-hidden="true">
-          <i className="fa-solid fa-envelope-circle-check" />
+        <div className="mx-auto mb-3 flex items-center justify-center">
+          <img
+            src="/icon.svg"
+            alt={brandName}
+            className="h-16 w-16 object-contain rounded-2xl shadow-md border-2 border-emerald-500/20"
+          />
         </div>
 
         <span className="verify-email-badge">{brandName}</span>

@@ -17,9 +17,10 @@ interface RiderChatModalProps {
 }
 
 const QUICK_REPLIES = [
-  'Please call me when you arrive.',
-  'I am waiting near the main gate.',
-  'Please leave the order at the doorstep.',
+  '📍 Arrived near gate, call me',
+  '🚪 Please leave at doorstep',
+  '⏳ Coming down in 2 mins',
+  '💵 I have exact cash ready',
 ];
 
 export const RiderChatModal: React.FC<RiderChatModalProps> = ({
@@ -45,8 +46,8 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
   if (!group) return null;
 
   const orderId = getCanonicalOrderIdForGroup(group);
-  const shortOrderId = `#${orderId.slice(-6)}`;
-  const riderName = rider?.name || 'Delivery Rider';
+  const shortOrderId = `#${orderId.slice(-6).toUpperCase()}`;
+  const riderName = rider?.name || 'Delivery Partner';
   const riderTelHref = formatTelHref(rider?.phone);
   const isRiderOnline = rider?.online !== false;
   const rawPhoto = rider?.photoUrl || rider?.imageUrl || '';
@@ -62,10 +63,15 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
     setDraft('');
   };
 
+  const handleQuickSend = (text: string) => {
+    triggerHaptic('tap');
+    onSendMessage(text);
+  };
+
   const renderStatusTicks = (msg: TripChatMessage) => {
     if (msg.status === 'SENDING') {
       return (
-        <span className="text-[10px] text-emerald-100/80" title="Sending...">
+        <span className="text-[10px] text-white/70" title="Sending...">
           ⏳
         </span>
       );
@@ -75,7 +81,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
         <button
           type="button"
           onClick={() => onRetryMessage(msg)}
-          className="ml-1 inline-flex items-center gap-1 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white"
+          className="ml-1 inline-flex items-center gap-1 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-xs"
           data-testid={`retry-msg-${msg.messageId}`}
         >
           ⚠️ Retry
@@ -96,7 +102,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
     if (msg.status === 'DELIVERED') {
       return (
         <span
-          className="text-[11px] font-black text-emerald-100/90"
+          className="text-[11px] font-black text-white/90"
           title="Delivered"
           data-testid={`msg-status-${msg.messageId}`}
         >
@@ -106,7 +112,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
     }
     return (
       <span
-        className="text-[11px] font-black text-emerald-100/85"
+        className="text-[11px] font-black text-white/75"
         title="Sent"
         data-testid={`msg-status-${msg.messageId}`}
       >
@@ -117,15 +123,15 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[9990] flex flex-col bg-slate-900/60 backdrop-blur-xs"
+      className="fixed inset-0 z-[9990] flex flex-col bg-slate-950/70 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-label={`Chat with rider ${riderName}`}
       data-testid="rider-chat-modal"
     >
       <div className="mx-auto flex h-full w-full max-w-[480px] flex-col bg-[#efeae2] shadow-2xl">
-        {/* Header */}
-        <header className="flex items-center justify-between bg-[#0c831f] px-3.5 py-3 text-white shadow-md">
+        {/* Top Header */}
+        <header className="flex items-center justify-between bg-linear-to-r from-[#0c831f] to-[#075e14] px-3.5 py-2.5 text-white shadow-md">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
@@ -133,51 +139,52 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
                 triggerHaptic('tap');
                 onClose();
               }}
-              aria-label="Close rider chat"
+              aria-label="Back"
               data-testid="close-rider-chat-btn"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white active:scale-95 transition-transform"
             >
               <i className="fa-solid fa-arrow-left text-sm" aria-hidden="true" />
             </button>
 
-            {safePhoto ? (
-              <img
-                src={safePhoto}
-                alt={riderName}
-                className="h-10 w-10 shrink-0 rounded-full object-cover border-2 border-white/40"
+            {/* Rider Avatar with Online Ping */}
+            <div className="relative shrink-0">
+              {safePhoto ? (
+                <img
+                  src={safePhoto}
+                  alt={riderName}
+                  className="h-10 w-10 rounded-full object-cover border-2 border-white/60 shadow-xs"
+                />
+              ) : (
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-white/60 bg-emerald-800 text-sm font-black text-white shadow-xs">
+                  {initialLetter}
+                </div>
+              )}
+              <span
+                className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
+                  isRiderOnline ? 'bg-lime-400' : 'bg-slate-400'
+                }`}
               />
-            ) : (
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-white/40 bg-emerald-800 text-base font-black text-white">
-                {initialLetter}
-              </div>
-            )}
+            </div>
 
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <strong
-                  className="truncate text-sm font-black text-white"
+                  className="truncate text-sm font-extrabold text-white"
                   data-testid="chat-header-rider-name"
                 >
                   {riderName}
                 </strong>
-                <span className="rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-extrabold text-emerald-100">
+                <span className="rounded-md bg-white/20 px-1.5 py-0.5 text-[10px] font-black text-emerald-100">
                   {shortOrderId}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-100">
-                <span
-                  className={`inline-block h-2 w-2 rounded-full ${
-                    isRiderOnline ? 'bg-lime-300' : 'bg-slate-300'
-                  }`}
-                />
-                <span data-testid="chat-rider-presence">
-                  {isRiderOnline ? 'Online • Active Trip' : 'Offline • Notifications On'}
-                </span>
+              <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-100/90">
+                <span>{isRiderOnline ? 'Online • Active Order' : 'Offline'}</span>
               </div>
             </div>
           </div>
 
-          {/* NORMAL PHONE CALL BUTTON */}
+          {/* Normal Phone Call Dialer Button */}
           {allowRiderCall && (
             riderTelHref ? (
               <a
@@ -185,7 +192,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
                 onClick={() => triggerHaptic('tap')}
                 aria-label={`Call ${riderName}`}
                 data-testid="chat-header-call-btn"
-                className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-black text-[#0c831f] shadow-sm active:scale-95 transition-transform"
+                className="flex items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-xs font-black text-[#0c831f] shadow-sm active:scale-95 transition-transform"
               >
                 <i className="fa-solid fa-phone text-xs" aria-hidden="true" />
                 <span>Call</span>
@@ -199,7 +206,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
                 }}
                 aria-label={`Call ${riderName}`}
                 data-testid="chat-header-call-btn"
-                className="flex items-center gap-1.5 rounded-full bg-white/85 px-3 py-1.5 text-xs font-black text-[#0c831f] shadow-sm active:scale-95 transition-transform"
+                className="flex items-center gap-1.5 rounded-full bg-white/80 px-3 py-1.5 text-xs font-black text-[#0c831f] shadow-sm active:scale-95 transition-transform"
               >
                 <i className="fa-solid fa-phone text-xs" aria-hidden="true" />
                 <span>Call</span>
@@ -208,46 +215,43 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
           )}
         </header>
 
-        {/* Info Banner */}
-        <div className="bg-amber-50 border-b border-amber-200/80 px-3 py-1.5 text-center text-[11px] font-bold text-amber-900">
-          <i className="fa-solid fa-shield-halved mr-1 text-amber-700" aria-hidden="true" />
-          Live Delivery Chat &amp; Normal Phone Support
+        {/* Security & Direct Delivery Strip */}
+        <div className="flex items-center justify-center gap-1.5 bg-[#fefce8] px-3 py-1.5 border-b border-amber-200/70 text-[11px] font-bold text-amber-900">
+          <i className="fa-solid fa-shield-halved text-amber-700" aria-hidden="true" />
+          <span>Direct rider chat for order directions & delivery notes</span>
         </div>
 
         {/* Messages Body */}
         <div
-          className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5"
+          className="flex-1 overflow-y-auto p-3.5 space-y-2.5"
           data-testid="rider-chat-messages-list"
+          style={{
+            backgroundImage:
+              'radial-gradient(rgba(12, 131, 31, 0.04) 1px, transparent 0)',
+            backgroundSize: '20px 20px',
+          }}
         >
+          {/* Today Divider */}
+          <div className="flex justify-center my-1">
+            <span className="rounded-full bg-black/10 px-3 py-0.5 text-[10px] font-bold tracking-wide text-slate-600 uppercase">
+              Today
+            </span>
+          </div>
+
           {messages.length === 0 ? (
             <div
-              className="my-6 mx-auto max-w-xs rounded-2xl bg-white/90 p-4 text-center shadow-xs"
+              className="mx-auto my-6 max-w-xs rounded-2xl bg-white/95 p-4 text-center shadow-sm border border-slate-200/80"
               data-testid="rider-chat-empty-state"
             >
               <div className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 text-[#0c831f]">
-                <i className="fa-solid fa-comments text-lg" aria-hidden="true" />
+                <i className="fa-solid fa-message text-lg" aria-hidden="true" />
               </div>
-              <p className="text-xs font-extrabold text-slate-800">
-                Chat with {riderName} ({shortOrderId})
-              </p>
+              <h4 className="text-xs font-black text-slate-900">
+                Message {riderName}
+              </h4>
               <p className="mt-1 text-[11px] text-slate-500">
-                Send delivery directions or tap a quick message below:
+                Send a quick note or tap one of the suggested replies below:
               </p>
-              <div className="mt-3 flex flex-col gap-1.5">
-                {QUICK_REPLIES.map((qr) => (
-                  <button
-                    key={qr}
-                    type="button"
-                    onClick={() => {
-                      triggerHaptic('tap');
-                      onSendMessage(qr);
-                    }}
-                    className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 text-left text-xs font-bold text-[#0c831f] hover:bg-emerald-100"
-                  >
-                    “{qr}”
-                  </button>
-                ))}
-              </div>
             </div>
           ) : (
             messages.map((msg) => {
@@ -266,23 +270,23 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
                   data-testid={`chat-bubble-${msg.senderRole.toLowerCase()}`}
                 >
                   <div
-                    className={`max-w-[80%] rounded-2xl px-3.5 py-2 shadow-xs ${
+                    className={`relative max-w-[82%] px-3.5 py-2 shadow-sm ${
                       isCustomer
-                        ? 'rounded-br-xs bg-[#0c831f] text-white'
-                        : 'rounded-bl-xs bg-white text-slate-800 border border-slate-200/70'
+                        ? 'rounded-2xl rounded-br-xs bg-linear-to-r from-[#0c831f] to-[#0a701a] text-white'
+                        : 'rounded-2xl rounded-bl-xs bg-white text-slate-900 border border-slate-200/80'
                     }`}
                   >
                     {!isCustomer && (
-                      <div className="mb-0.5 text-[10px] font-black text-emerald-700">
+                      <div className="mb-0.5 text-[10px] font-black text-[#0c831f]">
                         {riderName}
                       </div>
                     )}
-                    <div className="text-[13px] leading-snug break-words font-medium">
+                    <div className="text-[13.5px] leading-snug font-medium break-words">
                       {msg.message}
                     </div>
                     <div
-                      className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-                        isCustomer ? 'text-emerald-100/90' : 'text-slate-400'
+                      className={`mt-1 flex items-center justify-end gap-1.5 text-[10px] ${
+                        isCustomer ? 'text-white/80' : 'text-slate-400'
                       }`}
                     >
                       <span>{timeStr}</span>
@@ -296,29 +300,62 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
           <div ref={listEndRef} />
         </div>
 
-        {/* Message Input */}
+        {/* Quick Suggestion Chips */}
+        <div className="bg-[#efeae2] px-3 pt-1 pb-2">
+          <div className="flex gap-2 overflow-x-auto no-scrollbar py-0.5">
+            {QUICK_REPLIES.map((text) => (
+              <button
+                type="button"
+                key={text}
+                onClick={() => handleQuickSend(text)}
+                className="shrink-0 rounded-full border border-emerald-300 bg-white/95 px-3 py-1.5 text-[11px] font-bold text-[#0c831f] shadow-xs active:scale-95 transition-transform"
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Input Bar */}
         <form
           onSubmit={handleSubmit}
-          className="flex items-center gap-2 border-t border-slate-200 bg-white px-3 py-2.5"
+          className="flex items-center gap-2 border-t border-slate-200 bg-white px-3 py-2.5 pb-[max(0.65rem,env(safe-area-inset-bottom))]"
         >
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Type a message to rider..."
-            maxLength={500}
-            aria-label="Message to rider"
-            data-testid="rider-chat-input"
-            className="flex-1 rounded-full border border-slate-300 bg-slate-50 px-4 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0c831f] focus:bg-white focus:outline-none"
-          />
+          <div className="relative flex flex-1 items-center">
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Type delivery instructions..."
+              maxLength={500}
+              aria-label="Message to delivery partner"
+              data-testid="rider-chat-input"
+              className="w-full rounded-full border border-slate-300 bg-slate-50 py-2.5 pl-4 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0c831f] focus:bg-white focus:outline-none transition-colors"
+            />
+            {draft.trim() && (
+              <button
+                type="button"
+                onClick={() => setDraft('')}
+                className="absolute right-3 text-slate-400 hover:text-slate-600 text-xs"
+                aria-label="Clear text"
+              >
+                <i className="fa-solid fa-circle-xmark" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
           <button
             type="submit"
             disabled={!draft.trim() || isSending}
-            aria-label="Send message"
+            aria-label="Send SMS"
             data-testid="rider-chat-send-btn"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0c831f] text-white shadow-sm disabled:opacity-45 active:scale-95 transition-transform"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0c831f] text-white shadow-md disabled:opacity-40 disabled:scale-100 active:scale-95 transition-all"
           >
-            <i className="fa-solid fa-paper-plane text-sm" aria-hidden="true" />
+            {isSending ? (
+              <i className="fa-solid fa-spinner fa-spin text-sm" aria-hidden="true" />
+            ) : (
+              <i className="fa-solid fa-paper-plane text-sm" aria-hidden="true" />
+            )}
           </button>
         </form>
       </div>

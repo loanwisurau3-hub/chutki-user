@@ -310,7 +310,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     amount: summary.netPayable,
   });
   const checkoutUtrCheck =
-    utr.trim().length > 0 ? validateUpiUtr(utr, usedUtrs) : null;
+    !isPlacingOrder && utr.trim().length > 0
+      ? validateUpiUtr(utr, usedUtrs)
+      : null;
+  const isUpiUtrBlocked =
+    paymentMode === 'UPI' &&
+    !isPlacingOrder &&
+    Boolean(checkoutUtrCheck && !checkoutUtrCheck.valid);
   const hasAnyCardInput =
     cardHolderName.trim().length > 0 ||
     cardNumber.trim().length > 0 ||
@@ -1358,7 +1364,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             isPlacingOrder ||
             availablePayModes.length === 0 ||
             hasClosedStore ||
-            belowMinOrder
+            belowMinOrder ||
+            isUpiUtrBlocked
           }
           onClick={() =>
             onPlaceOrder({
@@ -1443,7 +1450,9 @@ export const WalletDepositModal: React.FC<WalletDepositModalProps> = ({
     maxAmount: Math.max(maxDeposit, 50000),
   });
   const walletUtrCheck =
-    utr.trim().length > 0 ? validateUpiUtr(utr, usedUtrs) : null;
+    !isSubmitting && utr.trim().length > 0
+      ? validateUpiUtr(utr, usedUtrs)
+      : null;
 
   return (
     <div id="wallet-deposit-modal" className="sheet-backdrop" onClick={onClose}>
@@ -1560,7 +1569,7 @@ export const WalletDepositModal: React.FC<WalletDepositModalProps> = ({
         <button
           type="button"
           className="btn btn-primary"
-          disabled={isSubmitting}
+          disabled={isSubmitting || Boolean(walletUtrCheck && !walletUtrCheck.valid)}
           onClick={() => onSubmit(Number(amt || 0), utr.trim(), screenshotData)}
         >
           {isSubmitting ? 'Submitting...' : 'Submit Deposit Request'}

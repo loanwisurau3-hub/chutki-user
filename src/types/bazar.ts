@@ -318,58 +318,6 @@ export interface AppNotification {
 
 export type TabKey = 'home' | 'orders' | 'wallet' | 'profile';
 
-export type InAppCallStatus =
-  | 'CALLING'
-  | 'RINGING'
-  | 'CONNECTING'
-  | 'CONNECTED'
-  | 'DECLINED'
-  | 'BUSY'
-  | 'ENDED'
-  | 'FAILED'
-  | 'TIMEOUT';
-
-export interface WebRtcSdpPayload {
-  type: 'offer' | 'answer';
-  sdp: string;
-}
-
-export interface WebRtcIceCandidatePayload {
-  candidate: string;
-  sdpMid: string | null;
-  sdpMLineIndex: number | null;
-  usernameFragment?: string | null;
-  createdAt?: number;
-}
-
-export interface WebRtcSignalingNode {
-  offer?: WebRtcSdpPayload | null;
-  answer?: WebRtcSdpPayload | null;
-  callerCandidates?: Record<string, WebRtcIceCandidatePayload>;
-  receiverCandidates?: Record<string, WebRtcIceCandidatePayload>;
-}
-
-export interface InAppCallRecord {
-  callId: string;
-  tripId: string;
-  orderId: string;
-  callerRole: 'CUSTOMER' | 'RIDER';
-  riderUid: string;
-  riderName: string;
-  riderPhotoUrl?: string;
-  customerUid: string;
-  customerLabel: string;
-  dropAddress: string;
-  status: InAppCallStatus;
-  customerAnswered: boolean;
-  isMuted: boolean;
-  isOnHold: boolean;
-  startedAt: number;
-  connectedAt?: number;
-  updatedAt: number;
-  webrtc?: WebRtcSignalingNode;
-}
-
 export type TripChatMessageStatus =
   | 'SENDING'
   | 'SENT'

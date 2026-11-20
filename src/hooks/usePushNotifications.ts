@@ -134,6 +134,7 @@ export function usePushNotifications(
                 title: notif.title,
                 body: notif.body,
                 channelId: ANDROID_CHANNEL_ID,
+                smallIcon: 'ic_stat_notification',
                 extra: {
                   targetTab: notif.targetTab || 'orders',
                 },
@@ -155,8 +156,8 @@ export function usePushNotifications(
           if (reg && typeof reg.showNotification === 'function') {
             await reg.showNotification(notif.title, {
               body: notif.body,
-              icon: '/pwa-192x192.png',
-              badge: '/pwa-192x192.png',
+              icon: '/icon.svg',
+              badge: '/notification-icon.svg',
               tag: notif.tag,
               data: {
                 url: `/?tab=${notif.targetTab || 'orders'}`,
@@ -168,7 +169,7 @@ export function usePushNotifications(
         }
         new Notification(notif.title, {
           body: notif.body,
-          icon: '/pwa-192x192.png',
+          icon: '/icon.svg',
           tag: notif.tag,
         });
       } catch {

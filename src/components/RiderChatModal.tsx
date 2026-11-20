@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { DeliveryPartner, GroupedOrder, TripChatMessage } from '../types/bazar';
-import { getCanonicalOrderIdForGroup } from '../utils/riderComm';
+import { formatTelHref, getCanonicalOrderIdForGroup } from '../utils/riderComm';
 import { sanitizeSafeUrl } from '../utils/security';
 import { triggerHaptic } from '../utils/haptics';
 
@@ -8,12 +8,12 @@ interface RiderChatModalProps {
   group: GroupedOrder | null;
   rider?: DeliveryPartner | null;
   messages: TripChatMessage[];
-  allowVoiceCall?: boolean;
+  allowRiderCall?: boolean;
   isSending?: boolean;
   onClose: () => void;
   onSendMessage: (text: string) => void;
   onRetryMessage: (msg: TripChatMessage) => void;
-  onStartVoiceCall?: (group: GroupedOrder) => void;
+  onCallUnavailable?: () => void;
 }
 
 const QUICK_REPLIES = [
@@ -26,12 +26,12 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
   group,
   rider,
   messages,
-  allowVoiceCall = true,
+  allowRiderCall = true,
   isSending = false,
   onClose,
   onSendMessage,
   onRetryMessage,
-  onStartVoiceCall,
+  onCallUnavailable,
 }) => {
   const [draft, setDraft] = useState('');
   const listEndRef = useRef<HTMLDivElement | null>(null);
@@ -47,7 +47,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
   const orderId = getCanonicalOrderIdForGroup(group);
   const shortOrderId = `#${orderId.slice(-6)}`;
   const riderName = rider?.name || 'Delivery Rider';
-  const riderPhone = rider?.phone || '';
+  const riderTelHref = formatTelHref(rider?.phone);
   const isRiderOnline = rider?.online !== false;
   const rawPhoto = rider?.photoUrl || rider?.imageUrl || '';
   const safePhoto = sanitizeSafeUrl(rawPhoto, true);
@@ -178,38 +178,40 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
           </div>
 
           {/* NORMAL PHONE CALL BUTTON */}
-          {riderPhone ? (
-            <a
-              href={`tel:${riderPhone}`}
-              onClick={() => triggerHaptic('tap')}
-              aria-label={`Call ${riderName}`}
-              data-testid="chat-header-call-btn"
-              className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-black text-[#0c831f] shadow-sm active:scale-95 transition-transform"
-            >
-              <i className="fa-solid fa-phone text-xs" aria-hidden="true" />
-              <span>Call</span>
-            </a>
-          ) : allowVoiceCall && onStartVoiceCall ? (
-            <button
-              type="button"
-              onClick={() => {
-                triggerHaptic('tap');
-                onStartVoiceCall(group);
-              }}
-              aria-label={`Call ${riderName}`}
-              data-testid="chat-header-call-btn"
-              className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-black text-[#0c831f] shadow-sm active:scale-95 transition-transform"
-            >
-              <i className="fa-solid fa-phone text-xs" aria-hidden="true" />
-              <span>Call</span>
-            </button>
-          ) : null}
+          {allowRiderCall && (
+            riderTelHref ? (
+              <a
+                href={riderTelHref}
+                onClick={() => triggerHaptic('tap')}
+                aria-label={`Call ${riderName}`}
+                data-testid="chat-header-call-btn"
+                className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-black text-[#0c831f] shadow-sm active:scale-95 transition-transform"
+              >
+                <i className="fa-solid fa-phone text-xs" aria-hidden="true" />
+                <span>Call</span>
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('tap');
+                  onCallUnavailable?.();
+                }}
+                aria-label={`Call ${riderName}`}
+                data-testid="chat-header-call-btn"
+                className="flex items-center gap-1.5 rounded-full bg-white/85 px-3 py-1.5 text-xs font-black text-[#0c831f] shadow-sm active:scale-95 transition-transform"
+              >
+                <i className="fa-solid fa-phone text-xs" aria-hidden="true" />
+                <span>Call</span>
+              </button>
+            )
+          )}
         </header>
 
         {/* Info Banner */}
         <div className="bg-amber-50 border-b border-amber-200/80 px-3 py-1.5 text-center text-[11px] font-bold text-amber-900">
           <i className="fa-solid fa-shield-halved mr-1 text-amber-700" aria-hidden="true" />
-          Live Delivery Chat &amp; Phone Support
+          Live Delivery Chat &amp; Normal Phone Support
         </div>
 
         {/* Messages Body */}

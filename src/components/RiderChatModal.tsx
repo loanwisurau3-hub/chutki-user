@@ -26,10 +26,12 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
   group,
   rider,
   messages,
+  allowVoiceCall = true,
   isSending = false,
   onClose,
   onSendMessage,
   onRetryMessage,
+  onStartVoiceCall,
 }) => {
   const [draft, setDraft] = useState('');
   const listEndRef = useRef<HTMLDivElement | null>(null);
@@ -122,7 +124,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
       data-testid="rider-chat-modal"
     >
       <div className="mx-auto flex h-full w-full max-w-[480px] flex-col bg-[#efeae2] shadow-2xl">
-        {/* WhatsApp-style Header */}
+        {/* Header */}
         <header className="flex items-center justify-between bg-[#0c831f] px-3.5 py-3 text-white shadow-md">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
@@ -175,7 +177,7 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
             </div>
           </div>
 
-          {/* NORMAL PHONE CALL BUTTON IN HEADER */}
+          {/* NORMAL PHONE CALL BUTTON */}
           {riderPhone ? (
             <a
               href={`tel:${riderPhone}`}
@@ -187,15 +189,27 @@ export const RiderChatModal: React.FC<RiderChatModalProps> = ({
               <i className="fa-solid fa-phone text-xs" aria-hidden="true" />
               <span>Call</span>
             </a>
-          ) : (
-            <span className="text-[11px] font-bold text-white/70">Phone N/A</span>
-          )}
+          ) : allowVoiceCall && onStartVoiceCall ? (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('tap');
+                onStartVoiceCall(group);
+              }}
+              aria-label={`Call ${riderName}`}
+              data-testid="chat-header-call-btn"
+              className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-black text-[#0c831f] shadow-sm active:scale-95 transition-transform"
+            >
+              <i className="fa-solid fa-phone text-xs" aria-hidden="true" />
+              <span>Call</span>
+            </button>
+          ) : null}
         </header>
 
         {/* Info Banner */}
         <div className="bg-amber-50 border-b border-amber-200/80 px-3 py-1.5 text-center text-[11px] font-bold text-amber-900">
           <i className="fa-solid fa-shield-halved mr-1 text-amber-700" aria-hidden="true" />
-          Direct Trip Chat &amp; Phone Support
+          Live Delivery Chat &amp; Phone Support
         </div>
 
         {/* Messages Body */}

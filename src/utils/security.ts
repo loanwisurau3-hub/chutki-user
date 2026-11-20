@@ -118,12 +118,14 @@ export function collectKnownUtrs(
 ): Set<string> {
   const set = new Set<string>();
   Object.values(orders || {}).forEach((o) => {
+    const status = String(o.status || '').trim().toUpperCase();
+    if (status === 'CANCELLED') return;
     const tx = String(o.transactionId || '').trim();
-    if (tx) set.add(tx);
+    if (/^\d{12}$/.test(tx)) set.add(tx);
   });
   storedUtrs.forEach((u) => {
     const clean = String(u || '').trim();
-    if (clean) set.add(clean);
+    if (/^\d{12}$/.test(clean)) set.add(clean);
   });
   return set;
 }
@@ -742,4 +744,3 @@ export function stripForbiddenKeysDeep<T>(value: T): T {
   }
   return value;
 }
-

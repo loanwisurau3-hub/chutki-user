@@ -175,6 +175,26 @@ function loadSavedUsedUtrs(): string[] {
   }
 }
 
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms = 12000,
+  timeoutMessage = 'Network is slow. Please check your connection and try again.'
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(timeoutMessage)), ms);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        window.clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 export default function App() {
   const isAutostartDemo = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -2098,16 +2118,25 @@ export default function App() {
 
     try {
       if (!isDemoMode && payload.paymentMode === 'UPI' && strictAntiScamShield) {
-        const existingUtrSnap = await get(ref(db, `usedUtrs/${utr}`));
-        if (existingUtrSnap.exists()) {
-          triggerHaptic('error');
-          showToast(
-            '🛡️ This UPI UTR has already been submitted. Duplicate UTR replay is blocked.',
-            'danger'
+        try {
+          const existingUtrSnap = await withTimeout(
+            get(ref(db, `usedUtrs/${utr}`)),
+            6000,
+            'UTR check timed out'
           );
-          return;
+          if (existingUtrSnap.exists()) {
+            triggerHaptic('error');
+            showToast(
+              '🛡️ This UPI UTR has already been submitted. Duplicate UTR replay is blocked.',
+              'danger'
+            );
+            return;
+          }
+        } catch {
+          // Do not hang on slow network or RTDB rules delay; local check already passed
         }
       }
+
       const storeCount = Object.keys(storeBatches).length;
       const deliveryOtp = Math.floor(1000 + Math.random() * 9000).toString();
       const deliveryQrToken = generateDeliveryQrToken();
@@ -2332,25 +2361,26 @@ export default function App() {
       }
 
       if (payload.paymentMode === 'WALLET') {
-        const txResult = await runTransaction(
-          ref(db, `customers/${activeUid}/walletBalance`),
-          (bal) => {
+        const txResult = await withTimeout(
+          runTransaction(ref(db, `customers/${activeUid}/walletBalance`), (bal) => {
             const cur = Number(bal || 0);
             if (cur < netPayableTotal) return;
             return Number((cur - netPayableTotal).toFixed(2));
-          }
+          }),
+          12000,
+          'Wallet deduction timed out. Please retry.'
         );
         if (!txResult.committed) {
           triggerHaptic('error');
           showToast('Insufficient Wallet balance!', 'danger');
           return;
         }
-        await push(ref(db, `walletTransactions/${activeUid}`), {
+        void push(ref(db, `walletTransactions/${activeUid}`), {
           type: 'DEBIT',
           amount: Number(netPayableTotal.toFixed(2)),
           note: 'Paid for grocery order',
           createdAt: Date.now(),
-        });
+        }).catch(() => undefined);
       }
 
       const orderPromises: Array<PromiseLike<unknown>> = [];
@@ -2452,10 +2482,47 @@ export default function App() {
         orderPromises.push(push(ref(db, 'orders'), stripForbiddenKeysDeep(orderData)));
       });
 
-      await Promise.all(orderPromises);
+      await withTimeout(
+        Promise.all(orderPromises),
+        15000,
+        'Order request timed out on slow network. Please check Orders tab before retrying.'
+      );
 
+      if (payload.paymentMode === 'UPI') {
+        recordUsedUtr(utr);
+      }
+
+      // Close checkout immediately so UI never stalls or flashes false duplicate UTR
+      setCartItems([]);
+      setIsCheckoutOpen(false);
+      setMenuStoreId(null);
+      switchNav('orders');
+      triggerHaptic('success');
+
+      if (cashbackEarned > 0) {
+        showToast(
+          `🎉 Order placed! ₹${cashbackEarned} cashback credited to Bazar Wallet.`,
+          'success'
+        );
+      }
+
+      pushNotification(
+        {
+          id: `placed_${batchGroupId}`,
+          title: `🛍️ Order Placed! PIN: ${deliveryOtp}`,
+          body: `Your order from ${storeCount} store${storeCount > 1 ? 's' : ''} is scheduled (${deliverySlot === 'EXPRESS_15' ? '15-min Express' : deliverySlot}).${allowDeliveryQr ? ' Delivery PIN & QR ready.' : ''}`,
+          tag: `gb-order-${batchGroupId}`,
+          type: 'ORDER',
+          targetTab: 'orders',
+          createdAt: Date.now(),
+          read: false,
+        },
+        true
+      );
+
+      // Background non-blocking updates (UTR record, stock, cashback, spamScore)
       if (payload.paymentMode === 'UPI' && strictAntiScamShield && activeUid) {
-        await set(ref(db, `usedUtrs/${utr}`), {
+        void set(ref(db, `usedUtrs/${utr}`), {
           uid: activeUid,
           createdAt: Date.now(),
         }).catch(() => undefined);
@@ -2470,61 +2537,39 @@ export default function App() {
               if (curStock === null || curStock === undefined) return curStock;
               return Math.max(0, Number(curStock) - item.qty);
             }
-          );
+          ).catch(() => undefined);
         }
       });
 
       if (cashbackEarned > 0) {
-        await runTransaction(
-          ref(db, `customers/${activeUid}/walletBalance`),
-          (bal) => Number((Number(bal || 0) + cashbackEarned).toFixed(2))
-        );
-        await runTransaction(
-          ref(db, `customers/${activeUid}/totalCashbackEarned`),
-          (tot) => Number((Number(tot || 0) + cashbackEarned).toFixed(2))
-        );
-        await push(ref(db, `walletTransactions/${activeUid}`), {
-          type: 'CREDIT',
-          amount: cashbackEarned,
-          note: `🎉 ${cashbackPercent}% Cashback (${payload.paymentMode})`,
-          createdAt: Date.now(),
-        });
+        void (async () => {
+          try {
+            await runTransaction(
+              ref(db, `customers/${activeUid}/walletBalance`),
+              (bal) => Number((Number(bal || 0) + cashbackEarned).toFixed(2))
+            );
+            await runTransaction(
+              ref(db, `customers/${activeUid}/totalCashbackEarned`),
+              (tot) => Number((Number(tot || 0) + cashbackEarned).toFixed(2))
+            );
+            await push(ref(db, `walletTransactions/${activeUid}`), {
+              type: 'CREDIT',
+              amount: cashbackEarned,
+              note: `🎉 ${cashbackPercent}% Cashback (${payload.paymentMode})`,
+              createdAt: Date.now(),
+            });
+          } catch {
+            // Ignore background cashback sync errors
+          }
+        })();
       }
 
-      if (payload.paymentMode === 'UPI') {
-        recordUsedUtr(utr);
-      }
       if (spamCheck.isSpamSuspect || fraudCheck.isSpamSuspect) {
         void runTransaction(
           ref(db, `customers/${activeUid}/spamScore`),
           (s) => Number(s || 0) + 1
-        );
+        ).catch(() => undefined);
       }
-
-      setCartItems([]);
-      setIsCheckoutOpen(false);
-      setMenuStoreId(null);
-      switchNav('orders');
-      triggerHaptic('success');
-      if (cashbackEarned > 0) {
-        showToast(
-          `🎉 Order placed! ₹${cashbackEarned} cashback credited to Bazar Wallet.`,
-          'success'
-        );
-      }
-      pushNotification(
-        {
-          id: `placed_${batchGroupId}`,
-          title: `🛍️ Order Placed! PIN: ${deliveryOtp}`,
-          body: `Your order from ${storeCount} store${storeCount > 1 ? 's' : ''} is scheduled (${deliverySlot === 'EXPRESS_15' ? '15-min Express' : deliverySlot}).${allowDeliveryQr ? ' Delivery PIN & QR ready.' : ''}`,
-          tag: `gb-order-${batchGroupId}`,
-          type: 'ORDER',
-          targetTab: 'orders',
-          createdAt: Date.now(),
-          read: false,
-        },
-        true
-      );
     } catch (err) {
       triggerHaptic('error');
       showToast(
@@ -2589,36 +2634,48 @@ export default function App() {
         return;
       }
       if (strictAntiScamShield) {
-        const existingUtrSnap = await get(ref(db, `usedUtrs/${cleanUtr}`));
-        if (existingUtrSnap.exists()) {
-          showToast(
-            '🛡️ This UTR has already been submitted. Duplicate UTR replay is blocked.',
-            'danger'
+        try {
+          const existingUtrSnap = await withTimeout(
+            get(ref(db, `usedUtrs/${cleanUtr}`)),
+            6000,
+            'UTR check timed out'
           );
-          return;
+          if (existingUtrSnap.exists()) {
+            showToast(
+              '🛡️ This UTR has already been submitted. Duplicate UTR replay is blocked.',
+              'danger'
+            );
+            return;
+          }
+        } catch {
+          // Ignore slow network/rules read failure; local check already passed
         }
       }
-      await push(ref(db, 'walletRequests'), {
-        type: 'DEPOSIT',
-        customerUid: activeUid,
-        customerName: customerProfile?.name || 'Customer',
-        customerPhone: customerProfile?.phone || '',
-        amount: cleanAmt,
-        utr: cleanUtr,
-        screenshot: screenshotData || '',
-        status: 'PENDING',
-        createdAt: Date.now(),
-      });
-      if (strictAntiScamShield && activeUid) {
-        await set(ref(db, `usedUtrs/${cleanUtr}`), {
-          uid: activeUid,
+      await withTimeout(
+        push(ref(db, 'walletRequests'), {
+          type: 'DEPOSIT',
+          customerUid: activeUid,
+          customerName: customerProfile?.name || 'Customer',
+          customerPhone: customerProfile?.phone || '',
+          amount: cleanAmt,
+          utr: cleanUtr,
+          screenshot: screenshotData || '',
+          status: 'PENDING',
           createdAt: Date.now(),
-        }).catch(() => undefined);
-      }
+        }),
+        15000,
+        'Deposit request timed out on slow network. Please retry.'
+      );
       recordRateLimitedAction(actionRateHistoryRef.current, 'DEPOSIT');
       recordUsedUtr(cleanUtr);
       setIsDepositOpen(false);
       showToast('✅ Deposit request sent to Admin for verification!', 'success');
+      if (strictAntiScamShield && activeUid) {
+        void set(ref(db, `usedUtrs/${cleanUtr}`), {
+          uid: activeUid,
+          createdAt: Date.now(),
+        }).catch(() => undefined);
+      }
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : 'Failed to submit deposit request.',

@@ -19,8 +19,6 @@ import type {
   DeliveryPartner,
   FeedbackItem,
   GroupedOrder,
-  InAppCallRecord,
-  InAppCallStatus,
   MenuItem,
   OrderRecord,
   ProductReview,
@@ -115,27 +113,14 @@ import {
   NotificationInboxModal,
   OfflineIndicator,
 } from './components/PWAControls';
-import { RiderVoiceCallModal } from './components/RiderVoiceCallModal';
 import { RiderChatModal } from './components/RiderChatModal';
 import {
-  buildCallStatusMultiPathUpdate,
-  buildCustomerCallMultiPathUpdate,
-  buildCustomerOutgoingCallRecord,
   buildTripChatMessage,
   countUnreadRiderMessages,
-  evaluateIncomingRiderCall,
   getCanonicalOrderIdForGroup,
-  getCanonicalTripIdForGroup,
-  isCallRingingExpired,
   isRiderCommunicationEligible,
   normalizeTripChatMessages,
 } from './utils/riderComm';
-import {
-  startCallRingtone,
-  startWebRtcVoiceSession,
-  type RingtoneController,
-  type WebRtcCallSession,
-} from './utils/webrtcCallEngine';
 
 const ChutkiBgBridge = registerPlugin<{
   startAlertService: (opts: { uid: string }) => Promise<void>;
@@ -285,21 +270,12 @@ export default function App() {
   const [cancelGroupKey, setCancelGroupKey] = useState<string | null>(null);
   const [isInboxOpen, setIsInboxOpen] = useState(false);
 
-  // Rider In-App Voice Call & Real-Time Chat states
-  const [activeCall, setActiveCall] = useState<InAppCallRecord | null>(null);
-  const [isCallMuted, setIsCallMuted] = useState(false);
-  const [isCallSpeakerOn, setIsCallSpeakerOn] = useState(false);
-  const [callMicError, setCallMicError] = useState<string | null>(null);
+  // Rider Real-Time Chat states
   const [activeChatGroupKey, setActiveChatGroupKey] = useState<string | null>(null);
   const [tripChatMessagesByOrder, setTripChatMessagesByOrder] = useState<
     Record<string, TripChatMessage[]>
   >({});
   const [isSendingChatMessage, setIsSendingChatMessage] = useState(false);
-  const webrtcSessionRef = useRef<WebRtcCallSession | null>(null);
-  const ringtoneRef = useRef<RingtoneController | null>(null);
-  const handledCallIdsRef = useRef<Set<string>>(new Set());
-  const activeCallRef = useRef<InAppCallRecord | null>(null);
-  activeCallRef.current = activeCall;
 
   // GPS & Async states
   const [detectedLat, setDetectedLat] = useState<number | null>(null);
@@ -577,7 +553,7 @@ export default function App() {
   const allowStoreRatings = settings.allowStoreRatings !== false;
   const allowRefundRequests = settings.allowRefundRequests !== false;
   const allowDeliveryQr = settings.allowDeliveryQr !== false;
-  const allowRiderVoiceCall = settings.allowRiderVoiceCall !== false;
+  const allowRiderCall = settings.allowRiderVoiceCall !== false;
   const allowRiderChat = settings.allowRiderChat !== false;
   const nearbyRadiusKm =
     settings.nearbyRadiusKm !== undefined && Number(settings.nearbyRadiusKm) > 0
@@ -900,7 +876,6 @@ export default function App() {
   }, [currentUser, needsEmailVerification, pushNotification]);
 
   const navStateRef = useRef({
-    activeCall,
     activeChatGroupKey,
     isInboxOpen,
     refundOrderTarget,
@@ -918,7 +893,6 @@ export default function App() {
     searchQuery,
   });
   navStateRef.current = {
-    activeCall,
     activeChatGroupKey,
     isInboxOpen,
     refundOrderTarget,
@@ -940,10 +914,6 @@ export default function App() {
   useEffect(() => {
     const handleBackStep = (isNativeBack: boolean): boolean => {
       const s = navStateRef.current;
-      if (s.activeCall) {
-        showToast('Tap End Call to close active voice call', 'info');
-        return false;
-      }
       if (s.activeChatGroupKey) {
         setActiveChatGroupKey(null);
         return false;
@@ -1898,7 +1868,6 @@ export default function App() {
       return;
     }
 
-    // Reconcile client cart against live catalog prices to block price tampering
     const {
       safeCart: verifiedCartItems,
       tamperedCount,
@@ -2021,7 +1990,6 @@ export default function App() {
       cardLast4 = cardCheck.last4 || '';
     }
 
-    // Group & calculate net payable using catalog-verified prices + live distance
     const storeBatches: Record<
       string,
       { storeName: string; items: CartItem[]; subtotal: number }
@@ -2246,7 +2214,6 @@ export default function App() {
           };
         });
 
-        // Update Demo stock counts
         setAllMenus((prev) => {
           const next = { ...prev };
           verifiedCartItems.forEach((item) => {
@@ -2494,7 +2461,6 @@ export default function App() {
         }).catch(() => undefined);
       }
 
-      // Decrement product stockCount in RTDB if configured
       verifiedCartItems.forEach((item) => {
         const menuProd = allMenus[item.storeId]?.[item.itemId];
         if (menuProd && typeof menuProd.stockCount === 'number') {
@@ -2508,7 +2474,6 @@ export default function App() {
         }
       });
 
-      // Credit prepaid wallet cashback if earned
       if (cashbackEarned > 0) {
         await runTransaction(
           ref(db, `customers/${activeUid}/walletBalance`),
@@ -3528,259 +3493,6 @@ export default function App() {
     ? groupedOrders.find((g) => g.groupKey === activeChatGroupKey) || null
     : null;
 
-  const stopActiveCallMedia = useCallback(() => {
-    if (ringtoneRef.current) {
-      ringtoneRef.current.stop();
-      ringtoneRef.current = null;
-    }
-    if (webrtcSessionRef.current) {
-      webrtcSessionRef.current.cleanup();
-      webrtcSessionRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      stopActiveCallMedia();
-    };
-  }, [stopActiveCallMedia]);
-
-  const handleIncomingOrUpdatedCallPayload = useCallback(
-    (candidate: Partial<InAppCallRecord> | null | undefined) => {
-      if (!activeUid || !candidate || typeof candidate !== 'object') return;
-      const current = activeCallRef.current;
-
-      // 1. If this update belongs to the currently active call, sync remote status transitions
-      if (current && candidate.callId === current.callId) {
-        const nextStatus = candidate.status as InAppCallStatus | undefined;
-        if (!nextStatus) return;
-
-        if (
-          nextStatus === 'DECLINED' ||
-          nextStatus === 'BUSY' ||
-          nextStatus === 'ENDED' ||
-          nextStatus === 'FAILED' ||
-          nextStatus === 'TIMEOUT'
-        ) {
-          stopActiveCallMedia();
-          setActiveCall((prev) =>
-            prev && prev.callId === current.callId
-              ? { ...prev, status: nextStatus, updatedAt: Date.now() }
-              : prev
-          );
-          if (nextStatus === 'DECLINED') {
-            showToast('Rider declined the voice call.', 'info');
-          } else if (nextStatus === 'BUSY') {
-            showToast('Rider is currently busy on another call.', 'info');
-          }
-          window.setTimeout(() => {
-            setActiveCall((prev) =>
-              prev && prev.callId === current.callId ? null : prev
-            );
-          }, 1200);
-          return;
-        }
-
-        setActiveCall((prev) => {
-          if (!prev || prev.callId !== current.callId) return prev;
-          // Do not overwrite local CONNECTED state with an older RINGING/CONNECTING snapshot
-          if (
-            prev.status === 'CONNECTED' &&
-            (nextStatus === 'RINGING' || nextStatus === 'CALLING' || nextStatus === 'CONNECTING')
-          ) {
-            return prev;
-          }
-          return {
-            ...prev,
-            status: nextStatus,
-            connectedAt:
-              prev.connectedAt ||
-              (typeof candidate.connectedAt === 'number'
-                ? candidate.connectedAt
-                : undefined),
-            updatedAt: Number(candidate.updatedAt || Date.now()),
-          };
-        });
-        return;
-      }
-
-      // 2. Otherwise evaluate whether it is a valid incoming Rider -> Customer call
-      if (!allowRiderVoiceCall) return;
-      const decision = evaluateIncomingRiderCall({
-        candidate,
-        loggedInCustomerUid: activeUid,
-        activeGroups: groupedOrders,
-        handledCallIds: handledCallIdsRef.current,
-        currentActiveCallId: current?.callId || null,
-      });
-
-      if (decision.action === 'IGNORE') return;
-
-      handledCallIdsRef.current.add(decision.call.callId);
-
-      if (decision.action === 'BUSY') {
-        if (!isDemoMode) {
-          const busyUpdates = buildCallStatusMultiPathUpdate({
-            orderId: decision.call.orderId,
-            tripId: decision.call.tripId,
-            customerUid: activeUid,
-            riderUid: decision.call.riderUid,
-            status: 'BUSY',
-            customerAnswered: false,
-          });
-          void update(ref(db), busyUpdates).catch(() => {});
-        }
-        return;
-      }
-
-      // decision.action === 'RING': Show full-screen incoming call UI + ringtone + vibration
-      stopActiveCallMedia();
-      setIsCallMuted(false);
-      setIsCallSpeakerOn(false);
-      setCallMicError(null);
-      setActiveCall(decision.call);
-      ringtoneRef.current = startCallRingtone('INCOMING');
-      pushNotification(
-        {
-          id: `call_${decision.call.callId}`,
-          title: `📞 Incoming Voice Call • ${decision.call.riderName}`,
-          body: `Rider is calling regarding Order #${decision.call.orderId.slice(-6)}`,
-          tag: decision.call.callId,
-          type: 'ORDER',
-          targetTab: 'orders',
-          createdAt: Date.now(),
-          read: false,
-        },
-        true
-      );
-    },
-    [
-      activeUid,
-      allowRiderVoiceCall,
-      groupedOrders,
-      isDemoMode,
-      pushNotification,
-      showToast,
-      stopActiveCallMedia,
-    ]
-  );
-
-  // Centralized App-Wide Incoming Call & Active Order Call Listener
-  useEffect(() => {
-    if (!activeUid || !isLoggedIn) return undefined;
-
-    const win = window as unknown as {
-      __chutkiSimulateIncomingRiderCall?: (
-        payload: Partial<InAppCallRecord>
-      ) => void;
-    };
-    win.__chutkiSimulateIncomingRiderCall = (payload) => {
-      handleIncomingOrUpdatedCallPayload(payload);
-    };
-
-    if (isDemoMode) {
-      return () => {
-        delete win.__chutkiSimulateIncomingRiderCall;
-      };
-    }
-
-    const unsubs: Array<() => void> = [];
-    unsubs.push(
-      onValue(ref(db, `customerCallInbox/${activeUid}`), (snap) => {
-        if (snap.exists()) {
-          handleIncomingOrUpdatedCallPayload(
-            snap.val() as Partial<InAppCallRecord>
-          );
-        }
-      })
-    );
-
-    const eligibleGroups = groupedOrders.filter((g) =>
-      isRiderCommunicationEligible(g)
-    );
-    const watchedPaths = new Set<string>();
-    eligibleGroups.forEach((grp) => {
-      const ordId = getCanonicalOrderIdForGroup(grp);
-      const trpId = getCanonicalTripIdForGroup(grp);
-      if (ordId && !watchedPaths.has(`inAppCalls/${ordId}`)) {
-        watchedPaths.add(`inAppCalls/${ordId}`);
-        unsubs.push(
-          onValue(ref(db, `inAppCalls/${ordId}`), (snap) => {
-            if (snap.exists()) {
-              handleIncomingOrUpdatedCallPayload(
-                snap.val() as Partial<InAppCallRecord>
-              );
-            }
-          })
-        );
-      }
-      if (trpId && trpId !== ordId && !watchedPaths.has(`inAppCalls/${trpId}`)) {
-        watchedPaths.add(`inAppCalls/${trpId}`);
-        unsubs.push(
-          onValue(ref(db, `inAppCalls/${trpId}`), (snap) => {
-            if (snap.exists()) {
-              handleIncomingOrUpdatedCallPayload(
-                snap.val() as Partial<InAppCallRecord>
-              );
-            }
-          })
-        );
-      }
-    });
-
-    return () => {
-      delete win.__chutkiSimulateIncomingRiderCall;
-      unsubs.forEach((u) => u());
-    };
-  }, [
-    activeUid,
-    groupedOrders,
-    handleIncomingOrUpdatedCallPayload,
-    isDemoMode,
-    isLoggedIn,
-  ]);
-
-  // 60-second unanswered call signaling timeout guard
-  useEffect(() => {
-    if (
-      !activeCall ||
-      (activeCall.status !== 'RINGING' && activeCall.status !== 'CALLING')
-    ) {
-      return undefined;
-    }
-    const timer = window.setInterval(() => {
-      const current = activeCallRef.current;
-      if (!current) return;
-      if (isCallRingingExpired(current, Date.now())) {
-        stopActiveCallMedia();
-        if (!isDemoMode) {
-          const timeoutUpdates = buildCallStatusMultiPathUpdate({
-            orderId: current.orderId,
-            tripId: current.tripId,
-            customerUid: current.customerUid,
-            riderUid: current.riderUid,
-            status: 'TIMEOUT',
-            customerAnswered: false,
-            clearWebrtc: true,
-          });
-          void update(ref(db), timeoutUpdates).catch(() => {});
-        }
-        setActiveCall((prev) =>
-          prev && prev.callId === current.callId
-            ? { ...prev, status: 'TIMEOUT', updatedAt: Date.now() }
-            : prev
-        );
-        showToast('Call unanswered (60s timeout).', 'info');
-        window.setTimeout(() => {
-          setActiveCall((prev) =>
-            prev && prev.callId === current.callId ? null : prev
-          );
-        }, 1200);
-      }
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [activeCall, isDemoMode, showToast, stopActiveCallMedia]);
-
   // Real-Time Trip Chat listener for active rider-assigned orders
   useEffect(() => {
     if (!activeUid || !isLoggedIn || isDemoMode) return undefined;
@@ -3839,316 +3551,6 @@ export default function App() {
     return counts;
   }, [activeUid, tripChatMessagesByOrder]);
 
-  const handleStartRiderVoiceCall = useCallback(
-    async (group: GroupedOrder) => {
-      if (!activeUid) return;
-      if (!allowRiderVoiceCall) {
-        showToast('In-App voice calling is currently disabled by Admin.', 'info');
-        return;
-      }
-      if (!isRiderCommunicationEligible(group) || !group.deliveryUid) {
-        showToast(
-          'Rider voice call is available only for active rider-assigned orders.',
-          'danger'
-        );
-        return;
-      }
-      if (activeCallRef.current) {
-        showToast('You already have an active voice call in progress.', 'info');
-        return;
-      }
-
-      const riderUid = group.deliveryUid;
-      const riderObj = deliveryPartners[riderUid];
-      const orderId = getCanonicalOrderIdForGroup(group);
-      const tripId = getCanonicalTripIdForGroup(group);
-
-      const callRecord = buildCustomerOutgoingCallRecord({
-        orderId,
-        tripId,
-        riderUid,
-        riderName: riderObj?.name || 'Delivery Rider',
-        riderPhotoUrl: riderObj?.photoUrl || riderObj?.imageUrl,
-        customerUid: activeUid,
-        customerName: customerProfile?.name || 'Customer',
-        dropAddress: group.address || customerProfile?.address || 'Delivery Address',
-      });
-
-      handledCallIdsRef.current.add(callRecord.callId);
-      stopActiveCallMedia();
-      setIsCallMuted(false);
-      setIsCallSpeakerOn(false);
-      setCallMicError(null);
-      setActiveCall(callRecord);
-      ringtoneRef.current = startCallRingtone('OUTGOING');
-
-      const signalingWritePromise = !isDemoMode
-        ? update(ref(db), buildCustomerCallMultiPathUpdate(callRecord)).catch((err) => {
-            stopActiveCallMedia();
-            setActiveCall(null);
-            showToast('Could not signal voice call. Check your connection.', 'danger');
-            throw err;
-          })
-        : Promise.resolve();
-
-      const session = await startWebRtcVoiceSession({
-        db,
-        orderId: callRecord.orderId,
-        tripId: callRecord.tripId,
-        role: 'CALLER',
-        beforeSignalingPromise: signalingWritePromise,
-        callbacks: {
-          onStatusChange: (status) => {
-            setActiveCall((prev) =>
-              prev && prev.callId === callRecord.callId
-                ? { ...prev, status, updatedAt: Date.now() }
-                : prev
-            );
-          },
-          onPeerConnected: () => {
-            if (ringtoneRef.current) {
-              ringtoneRef.current.stop();
-              ringtoneRef.current = null;
-            }
-            const connectedAt = Date.now();
-            setActiveCall((prev) =>
-              prev && prev.callId === callRecord.callId
-                ? {
-                    ...prev,
-                    status: 'CONNECTED',
-                    customerAnswered: true,
-                    connectedAt,
-                    updatedAt: connectedAt,
-                  }
-                : prev
-            );
-            if (!isDemoMode) {
-              const connUpdates = buildCallStatusMultiPathUpdate({
-                orderId: callRecord.orderId,
-                tripId: callRecord.tripId,
-                customerUid: activeUid,
-                riderUid: callRecord.riderUid,
-                status: 'CONNECTED',
-                customerAnswered: true,
-                connectedAt,
-              });
-              void update(ref(db), connUpdates).catch(() => {});
-            }
-          },
-          onMicPermissionError: (_permDenied, message) => {
-            setCallMicError(message);
-          },
-          onMicPermissionResolved: () => {
-            setCallMicError(null);
-          },
-        },
-      });
-
-      webrtcSessionRef.current = session;
-    },
-    [
-      activeUid,
-      allowRiderVoiceCall,
-      customerProfile?.address,
-      customerProfile?.name,
-      deliveryPartners,
-      isDemoMode,
-      showToast,
-      stopActiveCallMedia,
-    ]
-  );
-
-  const handleAnswerIncomingCall = useCallback(async () => {
-    const current = activeCallRef.current;
-    if (!current || !activeUid) return;
-
-    // 1. Stop incoming ringtone & vibration immediately
-    if (ringtoneRef.current) {
-      ringtoneRef.current.stop();
-      ringtoneRef.current = null;
-    }
-    setCallMicError(null);
-
-    // 2. Transition to CONNECTING first — CONNECTED is only written once WebRTC peer connects!
-    setActiveCall((prev) =>
-      prev && prev.callId === current.callId
-        ? {
-            ...prev,
-            status: 'CONNECTING',
-            customerAnswered: true,
-            updatedAt: Date.now(),
-          }
-        : prev
-    );
-
-    if (!isDemoMode) {
-      const connectingUpdates = buildCallStatusMultiPathUpdate({
-        orderId: current.orderId,
-        tripId: current.tripId,
-        customerUid: activeUid,
-        riderUid: current.riderUid,
-        status: 'CONNECTING',
-        customerAnswered: true,
-      });
-      void update(ref(db), connectingUpdates).catch(() => {});
-    }
-
-    const session = await startWebRtcVoiceSession({
-      db,
-      orderId: current.orderId,
-      tripId: current.tripId,
-      role: 'RECEIVER',
-      callbacks: {
-        onStatusChange: (status) => {
-          setActiveCall((prev) =>
-            prev && prev.callId === current.callId
-              ? { ...prev, status, updatedAt: Date.now() }
-              : prev
-          );
-        },
-        onPeerConnected: () => {
-          const connectedAt = Date.now();
-          setActiveCall((prev) =>
-            prev && prev.callId === current.callId
-              ? {
-                  ...prev,
-                  status: 'CONNECTED',
-                  customerAnswered: true,
-                  connectedAt,
-                  updatedAt: connectedAt,
-                }
-              : prev
-          );
-          if (!isDemoMode) {
-            const connectedUpdates = buildCallStatusMultiPathUpdate({
-              orderId: current.orderId,
-              tripId: current.tripId,
-              customerUid: activeUid,
-              riderUid: current.riderUid,
-              status: 'CONNECTED',
-              customerAnswered: true,
-              connectedAt,
-            });
-            void update(ref(db), connectedUpdates).catch(() => {});
-          }
-        },
-        onMicPermissionError: (_permDenied, message) => {
-          setCallMicError(message);
-        },
-        onMicPermissionResolved: () => {
-          setCallMicError(null);
-        },
-      },
-    });
-
-    webrtcSessionRef.current = session;
-  }, [activeUid, isDemoMode]);
-
-  const handleDeclineIncomingCall = useCallback(async () => {
-    const current = activeCallRef.current;
-    stopActiveCallMedia();
-    if (!current) return;
-
-    setActiveCall((prev) =>
-      prev && prev.callId === current.callId
-        ? {
-            ...prev,
-            status: 'DECLINED',
-            customerAnswered: false,
-            updatedAt: Date.now(),
-          }
-        : null
-    );
-
-    if (!isDemoMode && activeUid) {
-      const declineUpdates = buildCallStatusMultiPathUpdate({
-        orderId: current.orderId,
-        tripId: current.tripId,
-        customerUid: activeUid,
-        riderUid: current.riderUid,
-        status: 'DECLINED',
-        customerAnswered: false,
-        clearWebrtc: true,
-      });
-      await update(ref(db), declineUpdates).catch(() => {});
-    }
-
-    setActiveCall(null);
-  }, [activeUid, isDemoMode, stopActiveCallMedia]);
-
-  const handleEndVoiceCall = useCallback(async () => {
-    const current = activeCallRef.current;
-    stopActiveCallMedia();
-    if (!current) return;
-
-    setActiveCall((prev) =>
-      prev && prev.callId === current.callId
-        ? {
-            ...prev,
-            status: 'ENDED',
-            customerAnswered: false,
-            updatedAt: Date.now(),
-          }
-        : null
-    );
-
-    if (!isDemoMode && activeUid) {
-      const endUpdates = buildCallStatusMultiPathUpdate({
-        orderId: current.orderId,
-        tripId: current.tripId,
-        customerUid: activeUid,
-        riderUid: current.riderUid,
-        status: 'ENDED',
-        customerAnswered: false,
-        clearWebrtc: true,
-      });
-      await update(ref(db), endUpdates).catch(() => {});
-    }
-
-    setActiveCall(null);
-  }, [activeUid, isDemoMode, stopActiveCallMedia]);
-
-  const handleRetryCallMicrophone = useCallback(async () => {
-    if (!webrtcSessionRef.current) return;
-    const ok = await webrtcSessionRef.current.retryMicrophone();
-    if (ok) {
-      setCallMicError(null);
-      showToast('🎙️ Microphone connected!', 'success');
-    }
-  }, [showToast]);
-
-  const handleToggleCallMute = useCallback(() => {
-    if (callMicError && webrtcSessionRef.current) {
-      void handleRetryCallMicrophone();
-    }
-    const nextMuted = !isCallMuted;
-    setIsCallMuted(nextMuted);
-    if (webrtcSessionRef.current) {
-      webrtcSessionRef.current.setMuted(nextMuted);
-    }
-    const current = activeCallRef.current;
-    if (current && !isDemoMode && activeUid) {
-      const muteUpdates = buildCallStatusMultiPathUpdate({
-        orderId: current.orderId,
-        tripId: current.tripId,
-        customerUid: activeUid,
-        riderUid: current.riderUid,
-        status: current.status,
-        customerAnswered: current.customerAnswered,
-        isMuted: nextMuted,
-      });
-      void update(ref(db), muteUpdates).catch(() => {});
-    }
-  }, [activeUid, callMicError, handleRetryCallMicrophone, isCallMuted, isDemoMode]);
-
-  const handleToggleCallSpeaker = useCallback(() => {
-    const nextSpeaker = !isCallSpeakerOn;
-    setIsCallSpeakerOn(nextSpeaker);
-    if (webrtcSessionRef.current) {
-      void webrtcSessionRef.current.setSpeakerOn(nextSpeaker);
-    }
-  }, [isCallSpeakerOn]);
-
   const handleOpenRiderChat = useCallback(
     (group: GroupedOrder) => {
       if (!allowRiderChat) {
@@ -4168,7 +3570,6 @@ export default function App() {
         window.history.pushState({ modal: 'riderChat' }, '');
       }
 
-      // Mark unread Rider messages as READ
       if (isDemoMode) {
         setTripChatMessagesByOrder((prev) => {
           const existing = prev[ordId] || [];
@@ -4210,7 +3611,9 @@ export default function App() {
       const ordId = getCanonicalOrderIdForGroup(group);
       const pushRef = push(ref(db, `tripChats/${ordId}/messages`));
       const messageId =
-        existingMsgId || pushRef.key || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        existingMsgId ||
+        pushRef.key ||
+        `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
       const built = buildTripChatMessage({
         messageId,
@@ -4278,6 +3681,10 @@ export default function App() {
     },
     [activeUid, isDemoMode, showToast, strictAntiScamShield]
   );
+
+  const handleCallUnavailable = useCallback(() => {
+    showToast('Rider phone number is not available yet.', 'info');
+  }, [showToast]);
 
   return (
     <>
@@ -4621,7 +4028,7 @@ export default function App() {
             allowStoreRatings={allowStoreRatings}
             allowRefundRequests={allowRefundRequests}
             allowDeliveryQr={allowDeliveryQr}
-            allowRiderVoiceCall={allowRiderVoiceCall}
+            allowRiderCall={allowRiderCall}
             allowRiderChat={allowRiderChat}
             unreadChatCounts={unreadChatCounts}
             onOpenRateRider={(groupKey) => {
@@ -4661,7 +4068,7 @@ export default function App() {
               }
             }}
             onReorderOrder={handleReorderPastOrder}
-            onCallRider={(group) => void handleStartRiderVoiceCall(group)}
+            onCallUnavailable={handleCallUnavailable}
             onMessageRider={(group) => handleOpenRiderChat(group)}
           />
         )}
@@ -5074,7 +4481,7 @@ export default function App() {
               ? tripChatMessagesByOrder[getCanonicalOrderIdForGroup(activeChatGroup)] || []
               : []
           }
-          allowVoiceCall={allowRiderVoiceCall}
+          allowRiderCall={allowRiderCall}
           isSending={isSendingChatMessage}
           onClose={() => setActiveChatGroupKey(null)}
           onSendMessage={(text) => {
@@ -5087,25 +4494,7 @@ export default function App() {
               void sendOrRetryChatMessage(activeChatGroup, msg.message, msg.messageId);
             }
           }}
-          onStartVoiceCall={(grp) => void handleStartRiderVoiceCall(grp)}
-        />
-
-        <RiderVoiceCallModal
-          call={activeCall}
-          rider={
-            activeCall?.riderUid
-              ? deliveryPartners[activeCall.riderUid] || null
-              : null
-          }
-          isMuted={isCallMuted}
-          isSpeakerOn={isCallSpeakerOn}
-          micPermissionError={callMicError}
-          onAnswerIncoming={() => void handleAnswerIncomingCall()}
-          onDeclineIncoming={() => void handleDeclineIncomingCall()}
-          onEndCall={() => void handleEndVoiceCall()}
-          onToggleMute={handleToggleCallMute}
-          onToggleSpeaker={handleToggleCallSpeaker}
-          onRetryMicrophone={() => void handleRetryCallMicrophone()}
+          onCallUnavailable={handleCallUnavailable}
         />
       </div>
     </>

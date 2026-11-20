@@ -82,14 +82,12 @@ self.addEventListener('push', (event: PushEvent) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon: '/pwa-192x192.png',
-      badge: '/pwa-192x192.png',
+      icon: '/icon.svg',
+      badge: '/notification-icon.svg',
       tag,
       vibrate: [200, 100, 200],
       data: { url, targetTab },
-      actions: [
-        { action: 'open', title: 'Open App' },
-      ],
+      actions: [{ action: 'open', title: 'Open App' }],
     } as NotificationOptions)
   );
 });
@@ -120,8 +118,8 @@ self.addEventListener('message', (event: ExtendableMessageEvent) => {
     event.waitUntil(
       self.registration.showNotification(title, {
         body,
-        icon: '/pwa-192x192.png',
-        badge: '/pwa-192x192.png',
+        icon: '/icon.svg',
+        badge: '/notification-icon.svg',
         tag,
         vibrate: [200, 100, 200],
         data: { url: `/?tab=${targetTab}`, targetTab },

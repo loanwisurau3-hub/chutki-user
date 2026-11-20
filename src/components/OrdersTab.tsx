@@ -20,6 +20,7 @@ import { DeliveryQrCard } from './DeliveryQrCard';
 import { RiderMiniMap, type StoreMarkerInfo } from './RiderMiniMap';
 import { triggerHaptic } from '../utils/haptics';
 import {
+  formatTelHref,
   getCanonicalOrderIdForGroup,
   isRiderCommunicationEligible,
 } from '../utils/riderComm';
@@ -37,7 +38,7 @@ interface OrdersTabProps {
   allowStoreRatings?: boolean;
   allowRefundRequests?: boolean;
   allowDeliveryQr?: boolean;
-  allowRiderVoiceCall?: boolean;
+  allowRiderCall?: boolean;
   allowRiderChat?: boolean;
   unreadChatCounts?: Record<string, number>;
   onOpenRateRider: (groupKey: string) => void;
@@ -47,7 +48,7 @@ interface OrdersTabProps {
   onOpenRefundOrder: (order: OrderRecord) => void;
   onOpenCancelOrder: (groupKey: string) => void;
   onReorderOrder: (order: OrderRecord) => void;
-  onCallRider?: (group: GroupedOrder) => void;
+  onCallUnavailable?: () => void;
   onMessageRider?: (group: GroupedOrder) => void;
 }
 
@@ -63,6 +64,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
   allowStoreRatings = true,
   allowRefundRequests = true,
   allowDeliveryQr = true,
+  allowRiderCall = true,
   allowRiderChat = true,
   unreadChatCounts = {},
   onOpenRateRider,
@@ -72,7 +74,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
   onOpenRefundOrder,
   onOpenCancelOrder,
   onReorderOrder,
-  onCallRider,
+  onCallUnavailable,
   onMessageRider,
 }) => {
   const [orderFilter, setOrderFilter] = useState<OrderFilterSegment>('ACTIVE');
@@ -592,7 +594,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                           );
                           const riderInitial =
                             (rider.name || 'Rider').trim().charAt(0).toUpperCase() || 'R';
-                          const riderPhone = rider.phone || '';
+                          const riderTelHref = formatTelHref(rider.phone);
 
                           return (
                             <div className="delivery-boy-box">
@@ -654,10 +656,10 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                               </div>
                               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                 {/* NORMAL SIM / CELLULAR PHONE CALL BUTTON */}
-                                {canComm && (
-                                  riderPhone ? (
+                                {canComm && allowRiderCall && (
+                                  riderTelHref ? (
                                     <a
-                                      href={`tel:${riderPhone}`}
+                                      href={riderTelHref}
                                       className="btn btn-primary btn-sm"
                                       data-testid="call-rider-btn"
                                       aria-label={`Call Rider ${rider.name || 'Rider'}`}
@@ -670,7 +672,11 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                                       type="button"
                                       className="btn btn-primary btn-sm"
                                       data-testid="call-rider-btn"
-                                      onClick={() => onCallRider?.(group)}
+                                      aria-label={`Call Rider ${rider.name || 'Rider'}`}
+                                      onClick={() => {
+                                        triggerHaptic('tap');
+                                        onCallUnavailable?.();
+                                      }}
                                     >
                                       <i className="fa-solid fa-phone" aria-hidden="true" /> Call Rider
                                     </button>
